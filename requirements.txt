@@ -1,0 +1,10 @@
+# Polytrack RL — Python 3.11+
+# PyTorch CPU wheels (avoid CUDA); keep --extra-index-url before torch
+--extra-index-url https://download.pytorch.org/whl/cpu
+
+numpy>=1.24,<3
+gymnasium>=0.29.1
+stable-baselines3>=2.3.0
+tensorboard>=2.14.0
+playwright>=1.41.0
+torch>=2.2.0
