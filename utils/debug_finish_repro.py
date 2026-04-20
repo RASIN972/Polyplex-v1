@@ -21,7 +21,7 @@ if str(_ROOT) not in sys.path:
 
 from env.chromium_launch_args import (
     POLYTRACK_CHROMIUM_IGNORE_DEFAULT_ARGS,
-    POLYTRACK_CHROMIUM_LAUNCH_ARGS,
+    polytrack_chromium_launch_args,
 )
 from env.debug_logging import agent_debug_log, debug_ndjson_log_path
 from env.playwright_routes import install_polytrack_offline_routes
@@ -47,7 +47,7 @@ async def _main() -> None:
     async with async_playwright() as p:
         browser = await p.chromium.launch(
             headless=False,
-            args=list(POLYTRACK_CHROMIUM_LAUNCH_ARGS),
+            args=list(polytrack_chromium_launch_args(headless=False)),
             ignore_default_args=list(POLYTRACK_CHROMIUM_IGNORE_DEFAULT_ARGS),
         )
         page = await browser.new_page(viewport={"width": 1280, "height": 720})

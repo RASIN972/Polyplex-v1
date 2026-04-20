@@ -85,6 +85,12 @@ def main() -> None:
         help="Show Chromium windows (default: headless, especially for num_envs>1)",
     )
     parser.add_argument(
+        "--device",
+        type=str,
+        default="cpu",
+        help="PyTorch device for PPO (default: cpu — matches typical AMD/CPU training setup)",
+    )
+    parser.add_argument(
         "--track-index",
         type=int,
         default=0,
@@ -144,6 +150,7 @@ def main() -> None:
             verbose=1,
             tensorboard_log=str(log_dir),
             policy_kwargs=dict(net_arch=[64, 64]),
+            device=args.device,
         )
 
         checkpoint_cb = CheckpointCallback(

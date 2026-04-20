@@ -17,7 +17,7 @@ from playwright.async_api import Browser, Page, Playwright, TimeoutError as Play
 
 from env.chromium_launch_args import (
     POLYTRACK_CHROMIUM_IGNORE_DEFAULT_ARGS,
-    POLYTRACK_CHROMIUM_LAUNCH_ARGS,
+    polytrack_chromium_launch_args,
 )
 from env.debug_logging import agent_debug_log
 
@@ -366,7 +366,7 @@ class GameBridge:
         pw = await async_playwright().start()
         browser = await pw.chromium.launch(
             headless=headless,
-            args=list(POLYTRACK_CHROMIUM_LAUNCH_ARGS),
+            args=list(polytrack_chromium_launch_args(headless=headless)),
             ignore_default_args=list(POLYTRACK_CHROMIUM_IGNORE_DEFAULT_ARGS),
         )
         page = await browser.new_page(viewport=viewport or {"width": 1280, "height": 720})
@@ -459,7 +459,7 @@ class GameBridge:
         self._playwright = await async_playwright().start()
         self._browser = await self._playwright.chromium.launch(
             headless=headless,
-            args=list(POLYTRACK_CHROMIUM_LAUNCH_ARGS),
+            args=list(polytrack_chromium_launch_args(headless=headless)),
             ignore_default_args=list(POLYTRACK_CHROMIUM_IGNORE_DEFAULT_ARGS),
         )
         self._page = await self._browser.new_page(viewport=viewport or {"width": 1280, "height": 720})
