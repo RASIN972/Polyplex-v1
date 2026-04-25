@@ -10,6 +10,7 @@ recovery + KeyR flow, see ``FinishDebugGameBridge``.
 
 from __future__ import annotations
 
+import os
 import time
 from typing import Any
 
@@ -472,21 +473,59 @@ class GameBridge:
         await self._ensure_rl_harness()
 
     async def _dismiss_blocking_message_boxes(self) -> bool:
-        msg = self._page.locator("#ui .message-box.message")
-        try:
-            if await msg.count() == 0:
-                return False
-            box = msg.first
-            if not await box.is_visible():
-                return False
-            ok_btn = box.locator(".box button").nth(1)
-            await ok_btn.click(timeout=8000)
-            await self._page.wait_for_timeout(350)
-            return True
-        except PlaywrightTimeoutError:
-            return False
+        """Dismiss #ui .message-box overlays. CSS often hides the first .message button; some dialogs
+        only have one button (nth(1) was wrong). Clicks the last visible button per box, then Esc.
+        """
+        any_clicked = False
+        boxes = self._page.locator("#ui .message-box")
+        n = await boxes.count()
+        for i in range(n):
+            box = boxes.nth(i)
+            try:
+                if not await box.is_visible():
+                    continue
+            except Exception:
+                continue
+            btns = box.locator(".box button")
+            btn_count = await btns.count()
+            for j in range(btn_count - 1, -1, -1):
+                btn = btns.nth(j)
+                try:
+                    if not await btn.is_visible():
+                        continue
+                except Exception:
+                    continue
+                try:
+                    await btn.click(
+                        timeout=5000, force=True, no_wait_after=True
+                    )
+                    any_clicked = True
+                    await self._page.wait_for_timeout(400)
+                    break
+                except PlaywrightTimeoutError:
+                    try:
+                        await btn.evaluate("el => el.click()")
+                        any_clicked = True
+                        await self._page.wait_for_timeout(400)
+                        break
+                    except Exception:
+                        pass
+        if not any_clicked:
+            try:
+                await self._page.keyboard.press("Escape")
+                await self._page.wait_for_timeout(250)
+            except Exception:
+                pass
+        return any_clicked
 
-    async def _wait_until_play_visible(self, timeout_s: float = 120.0) -> None:
+    def _menu_play_wait_timeout_s(self) -> float:
+        return float(
+            os.environ.get("POLYTRACK_MENU_WAIT_S", "300")
+        )
+
+    async def _wait_until_play_visible(self, timeout_s: float | None = None) -> None:
+        if timeout_s is None:
+            timeout_s = self._menu_play_wait_timeout_s()
         play = self._page.locator(
             '#ui .menu button.button-image:has(img[src*="play.svg"])'
         )
@@ -498,7 +537,8 @@ class GameBridge:
             await self._page.wait_for_timeout(350)
         raise RuntimeError(
             "main menu: Play never became visible — dismiss any #ui .message-box "
-            "dialogs (e.g. token / leaderboard) or wait for loading to finish"
+            "dialogs (e.g. token / leaderboard) or wait for loading to finish. "
+            "Try fewer envs, POLYTRACK_MENU_WAIT_S=600, or --headed to see the UI."
         )
 
     async def _reliable_menu_click(self, locator, *, timeout_ms: int = 60_000) -> None:
