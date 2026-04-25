@@ -472,6 +472,38 @@ class GameBridge:
             pass
         await self._ensure_rl_harness()
 
+    async def _dismiss_message_boxes_js(self) -> bool:
+        """Click Ok on open #ui .message-box dialogs using the DOM (not Playwright click).
+
+        Polytrack's `.message` boxes hide the first button with CSS (`display: none`); the real Ok is
+        the second button. Headless/Windows often report is_visible() incorrectly on the overlay, so
+        we use getComputedStyle and .click() in-page. Also required before main-menu Play: token /
+        leaderboard failures call show(); until Ok, menu buttons stay class ``hidden`` and the Play
+        locator never matches.
+        """
+        clicked = await self._page.evaluate(
+            """() => {
+            const root = document.getElementById("ui");
+            if (!root) return false;
+            for (const box of root.querySelectorAll(".message-box")) {
+                if (box.classList.contains("hidden")) continue;
+                const boxInner = box.querySelector(".box");
+                if (!boxInner) continue;
+                const buttons = boxInner.querySelectorAll("button");
+                for (let j = buttons.length - 1; j >= 0; j--) {
+                    const b = buttons[j];
+                    if (window.getComputedStyle(b).display === "none") continue;
+                    b.click();
+                    return true;
+                }
+            }
+            return false;
+        }"""
+        )
+        if clicked:
+            await self._page.wait_for_timeout(400)
+        return bool(clicked)
+
     async def _dismiss_blocking_message_boxes(self) -> bool:
         """Dismiss #ui .message-box overlays. CSS often hides the first .message button; some dialogs
         only have one button (nth(1) was wrong). Clicks the last visible button per box, then Esc.
@@ -531,6 +563,7 @@ class GameBridge:
         )
         deadline = time.monotonic() + timeout_s
         while time.monotonic() < deadline:
+            await self._dismiss_message_boxes_js()
             await self._dismiss_blocking_message_boxes()
             if await play.is_visible():
                 return
