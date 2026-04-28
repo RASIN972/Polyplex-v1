@@ -21,6 +21,7 @@ REQUIRED_FILES = (
     "index.html",
     "js/2176-lib-ammo.js",
     "js/9209-dist-main.bundle.js",
+    "dist/simulation_worker.bundle.js",
     "forced_square.json",
     "audio/checkpoint.flac",
     "audio/click.flac",
