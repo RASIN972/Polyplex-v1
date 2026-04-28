@@ -97,7 +97,7 @@ def _check_offline_api(port: int) -> None:
     print(f"Offline API check: {response.status} {body[:120]}")
 
 
-async def _browser_check(port: int, headed: bool) -> dict[str, Any]:
+async def _browser_check(port: int, headed: bool, wait_seconds: float) -> dict[str, Any]:
     url = f"http://127.0.0.1:{port}/"
     failed: list[str] = []
     bad_statuses: list[str] = []
@@ -123,19 +123,47 @@ async def _browser_check(port: int, headed: bool) -> dict[str, Any]:
         page.on("pageerror", lambda err: page_errors.append(str(err)))
 
         response = await page.goto(url, wait_until="domcontentloaded", timeout=30_000)
-        await page.wait_for_timeout(6_000)
+        play = page.locator('#ui .menu button.button-image:has(img[src*="play.svg"])')
+        menu_ready = False
+        deadline = asyncio.get_running_loop().time() + wait_seconds
+        while asyncio.get_running_loop().time() < deadline:
+            try:
+                if await play.is_visible(timeout=500):
+                    menu_ready = True
+                    break
+            except Exception:
+                pass
+            await page.wait_for_timeout(500)
         text = ""
         try:
             text = (await page.locator("body").inner_text(timeout=2_000))[:500]
         except Exception as exc:
             text = f"<could not read body text: {exc}>"
         title = await page.title()
+        ui_state = await page.evaluate(
+            """() => ({
+                ammoType: typeof window.Ammo,
+                ghostType: typeof window.__polytrackGhostData,
+                uiText: document.getElementById("ui")?.innerText?.slice(0, 500) ?? null,
+                loadingText: Array.from(document.querySelectorAll("*"))
+                    .filter((el) => /Loading/i.test(el.textContent || ""))
+                    .slice(0, 5)
+                    .map((el) => ({
+                        tag: el.tagName,
+                        className: String(el.className || ""),
+                        text: String(el.textContent || "").slice(0, 120),
+                    })),
+                playButtonCount: document.querySelectorAll('#ui .menu button.button-image img[src*="play.svg"]').length,
+            })"""
+        )
         await browser.close()
 
     return {
         "status": response.status if response else None,
         "title": title,
         "body": text,
+        "menu_ready": menu_ready,
+        "ui_state": ui_state,
         "failed": failed[:20],
         "bad_statuses": bad_statuses[:20],
         "console": console[:20],
@@ -147,27 +175,45 @@ async def _main() -> int:
     parser = argparse.ArgumentParser(description="Diagnose local Polytrack loading.")
     parser.add_argument("--port", type=int, default=8090)
     parser.add_argument("--headed", action="store_true", help="Show the diagnostic browser window.")
+    parser.add_argument(
+        "--wait-seconds",
+        type=float,
+        default=30.0,
+        help="How long to wait for the Play menu before failing (default: 30).",
+    )
     args = parser.parse_args()
 
     files_ok = _check_files()
     proc = _start_server(args.port)
     try:
         _check_offline_api(args.port)
-        result = await _browser_check(args.port, headed=args.headed)
+        result = await _browser_check(
+            args.port,
+            headed=args.headed,
+            wait_seconds=args.wait_seconds,
+        )
         print("\nBrowser check:")
         print(f"  status: {result['status']}")
         print(f"  title: {result['title']!r}")
+        print(f"  menu_ready: {result['menu_ready']}")
         print(f"  body: {result['body']!r}")
+        print(f"  ui_state: {result['ui_state']!r}")
         for label in ("bad_statuses", "failed", "page_errors", "console"):
             items = result[label]
             print(f"  {label}: {len(items)}")
             for item in items:
                 print(f"    {item}")
 
-        if files_ok and not result["bad_statuses"] and not result["failed"] and not result["page_errors"]:
+        if (
+            files_ok
+            and result["menu_ready"]
+            and not result["bad_statuses"]
+            and not result["failed"]
+            and not result["page_errors"]
+        ):
             print("\nPASS: local files and browser load look healthy.")
             return 0
-        print("\nFAIL: see the items above, then repull/restart/hard-refresh on the PC.")
+        print("\nFAIL: the page did not reach the playable menu; see the items above.")
         return 1
     finally:
         if proc is not None:
