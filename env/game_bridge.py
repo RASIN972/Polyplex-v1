@@ -21,6 +21,7 @@ from env.chromium_launch_args import (
     polytrack_chromium_launch_args,
 )
 from env.debug_logging import agent_debug_log
+from env.playwright_routes import install_polytrack_offline_routes
 
 _PLAYWRIGHT_KEYCODE = {"w": "KeyW", "a": "KeyA", "s": "KeyS", "d": "KeyD"}
 
@@ -371,6 +372,7 @@ class GameBridge:
             ignore_default_args=list(POLYTRACK_CHROMIUM_IGNORE_DEFAULT_ARGS),
         )
         page = await browser.new_page(viewport=viewport or {"width": 1280, "height": 720})
+        await install_polytrack_offline_routes(page)
         bridge = cls(page, _playwright=pw, _browser=browser)
         await page.goto(url, wait_until="domcontentloaded", timeout=60_000)
         try:
@@ -464,6 +466,7 @@ class GameBridge:
             ignore_default_args=list(POLYTRACK_CHROMIUM_IGNORE_DEFAULT_ARGS),
         )
         self._page = await self._browser.new_page(viewport=viewport or {"width": 1280, "height": 720})
+        await install_polytrack_offline_routes(self._page)
         self._rl_installed = False
         await self._page.goto(url, wait_until="domcontentloaded", timeout=60_000)
         try:

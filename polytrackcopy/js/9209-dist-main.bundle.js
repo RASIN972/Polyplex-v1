@@ -27874,7 +27874,7 @@ function deepClone(obj) {
             };
         const {
             version: dk
-        } = i(147), uk = "https://vps.kodub.com:43273/";
+        } = i(147), uk = "/offline-polytrack-api/";
         ok = new WeakMap, lk = new WeakMap;
         const fk = class {
             constructor(e) {
