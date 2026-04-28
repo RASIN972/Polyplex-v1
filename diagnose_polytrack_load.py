@@ -21,11 +21,54 @@ REQUIRED_FILES = (
     "index.html",
     "js/2176-lib-ammo.js",
     "js/9209-dist-main.bundle.js",
+    "forced_square.json",
+    "audio/checkpoint.flac",
+    "audio/click.flac",
+    "audio/collision.flac",
+    "audio/editor_edit.flac",
+    "audio/engine.flac",
+    "audio/music.mp3",
+    "audio/skidding.flac",
+    "audio/suspension.flac",
+    "audio/tires.flac",
     "css/css-loading_ui.css",
     "css/css-menu.css",
     "css/css-theme.css",
+    "images/apply.svg",
+    "images/arrow_down.svg",
+    "images/arrow_up.svg",
+    "images/back.svg",
+    "images/cancel.svg",
+    "images/clouds.jpg",
+    "images/copy.svg",
+    "images/customize.svg",
+    "images/discord.svg",
+    "images/editor.svg",
+    "images/erase.svg",
+    "images/export.svg",
+    "images/helmet.svg",
+    "images/import.svg",
+    "images/load.svg",
     "images/logo.svg",
     "images/play.svg",
+    "images/quit.svg",
+    "images/random.svg",
+    "images/reset_settings.svg",
+    "images/save.svg",
+    "images/settings.svg",
+    "images/smoke.png",
+    "images/state_invalid.svg",
+    "images/state_pending.svg",
+    "images/state_verified.svg",
+    "images/test.svg",
+    "models/block.glb",
+    "models/car.glb",
+    "models/pillar.glb",
+    "models/plane.glb",
+    "models/road.glb",
+    "models/road_wide.glb",
+    "models/signs.glb",
+    "models/wall_track.glb",
 )
 
 
@@ -95,6 +138,25 @@ def _check_offline_api(port: int) -> None:
     with urllib.request.urlopen(url, timeout=5) as response:
         body = response.read().decode("utf-8", errors="replace")
     print(f"Offline API check: {response.status} {body[:120]}")
+
+
+def _check_served_assets(port: int) -> bool:
+    print("Served asset check:")
+    ok = True
+    for rel in REQUIRED_FILES:
+        if rel == "index.html":
+            path = ""
+        else:
+            path = rel
+        url = f"http://127.0.0.1:{port}/{path}"
+        try:
+            with urllib.request.urlopen(url, timeout=5) as response:
+                size = len(response.read())
+            print(f"  OK      {rel} ({response.status}, {size} bytes)")
+        except Exception as exc:
+            ok = False
+            print(f"  MISSING {rel} ({exc})")
+    return ok
 
 
 async def _browser_check(port: int, headed: bool, wait_seconds: float) -> dict[str, Any]:
@@ -187,6 +249,7 @@ async def _main() -> int:
     proc = _start_server(args.port)
     try:
         _check_offline_api(args.port)
+        served_assets_ok = _check_served_assets(args.port)
         result = await _browser_check(
             args.port,
             headed=args.headed,
@@ -206,6 +269,7 @@ async def _main() -> int:
 
         if (
             files_ok
+            and served_assets_ok
             and result["menu_ready"]
             and not result["bad_statuses"]
             and not result["failed"]
