@@ -25,7 +25,7 @@
    python run_local_training.py
    ```
 
-   **Startup timing:** The training monitor can sit at **0 / 1,000,000 steps** for a few minutes while Playwright drives each parallel env through **Play → track menu**. The bridge now **retries** this flow (see env vars `POLYTRACK_TRACK_MENU_*`) and **staggers** worker startup (`POLYTRACK_WORKER_STAGGER_S`, default 2.5s). A single attempt waits up to **60s** by default for the track list; with retries, expect a few minutes before **Steps** increase or a hard failure.
+   **Startup timing:** The monitor can sit at **0 steps** while the **track picker** loads each track from the server (`.track` files over HTTP). The bridge waits until the in-menu **loading** UI is gone and at least one row button lays out (**~3 minutes per attempt** by default; × retries). Increase `POLYTRACK_TRACK_MENU_WAIT_MS` if your disk or CPU is busy with **8** parallel games.
 
    **If training stops with `RuntimeError: track menu: timed out waiting for track list after Play`:** Playwright never saw track rows as ready. **Headless on Windows** now skips SwiftShader by default (same GL path as headed); if you need software-only rendering in a VM, set `POLYTRACK_HEADLESS_USE_SWIFTSHADER=1`. Try `--headed` to confirm the UI loads. Other causes: game not fully loaded, dialog blocking Play, or too many parallel browsers — use `--num-envs 1 --vec-env dummy`, check `logs/polytrack_http_server_*.log`, open `http://127.0.0.1:8080/` manually.
 
@@ -46,7 +46,8 @@
 | **Single-process debug (no multiprocessing)** | `python training\train_ppo.py --num-envs 1 --vec-env dummy` |
 | **Skip auto-launch of HTTP servers** | `set POLYTRACK_SKIP_SERVER_LAUNCH=1` then run `run_local_training.py` |
 | **Stagger parallel env workers (seconds × worker index)** | `POLYTRACK_WORKER_STAGGER_S` (default **2.5**; set **0** to disable) |
-| **Track menu: wait per attempt (ms)** | `POLYTRACK_TRACK_MENU_WAIT_MS` (default **60000**) |
+| **Track menu: wait per attempt (ms)** | `POLYTRACK_TRACK_MENU_WAIT_MS` (default **180000** — track `.poly`/HTTP loads can be slow) |
+| **Track menu: min rows before “ready”** | `POLYTRACK_TRACK_MENU_MIN_TRACKS` (default **1**) |
 | **Track menu: retry open Play → list** | `POLYTRACK_TRACK_MENU_ATTEMPTS` (default **4**) |
 | **Headless Windows: force software GL (SwiftShader)** | `POLYTRACK_HEADLESS_USE_SWIFTSHADER=1` (default on Windows is **off** — uses GPU/ANGLE like headed; set **1** on GPU-less VMs) |
 

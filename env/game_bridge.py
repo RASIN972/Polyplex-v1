@@ -287,13 +287,28 @@ _PROBE_JS = """
 """
 
 
-# Headless Chromium often keeps menu buttons off Playwright's "visible" radar (opacity/paint).
-# Treat rows as ready when layout says they have real size and are not display:none.
+# Track rows appear only after each .track file loads over HTTP; the UI may show `.loading`
+# inside the picker first. Don't treat as ready until loading widgets are gone and buttons layout.
 _TRACK_ROWS_READY_JS = """
-() => {
-  const sel = "#ui .track-selection .tracks-container .track button";
-  const rows = document.querySelectorAll(sel);
-  if (!rows.length) return false;
+({ min }) => {
+  const panel = document.querySelector("#ui .track-selection");
+  if (!panel || panel.classList.contains("hidden")) return false;
+  const pcs = getComputedStyle(panel);
+  if (pcs.display === "none" || pcs.visibility === "hidden") return false;
+
+  for (const sel of [".loading", ".loading-spinner"]) {
+    const el = panel.querySelector(sel);
+    if (!el) continue;
+    const st = getComputedStyle(el);
+    if (st.display === "none" || st.visibility === "hidden") continue;
+    const r = el.getBoundingClientRect();
+    if (r.width > 2 && r.height > 2) return false;
+  }
+
+  const rowSel = "#ui .track-selection .tracks-container .track button";
+  const rows = document.querySelectorAll(rowSel);
+  if (rows.length < min) return false;
+  let ok = 0;
   for (const btn of rows) {
     const st = getComputedStyle(btn);
     if (st.display === "none" || st.visibility === "hidden") continue;
@@ -301,9 +316,9 @@ _TRACK_ROWS_READY_JS = """
     if (r.width < 2 || r.height < 2) continue;
     const op = parseFloat(st.opacity);
     if (!Number.isNaN(op) && op < 0.05) continue;
-    return true;
+    ok++;
   }
-  return false;
+  return ok >= min;
 }
 """
 
@@ -619,6 +634,35 @@ class GameBridge:
         except PlaywrightTimeoutError:
             await locator.evaluate("el => el.click()")
 
+    async def _click_main_menu_play(self, play: Locator) -> None:
+        """First-screen Play: game often ignores synthetic ``el.click()``; use real mouse + Enter fallback."""
+        await play.scroll_into_view_if_needed(timeout=15_000)
+        await self._page.wait_for_timeout(150)
+        box = await play.bounding_box()
+        if not box:
+            img = play.locator("img").first
+            try:
+                box = await img.bounding_box()
+            except PlaywrightTimeoutError:
+                box = None
+        if box:
+            cx = box["x"] + box["width"] / 2
+            cy = box["y"] + box["height"] / 2
+            await self._page.mouse.move(cx, cy)
+            await self._page.wait_for_timeout(80)
+            await self._page.mouse.down()
+            await self._page.wait_for_timeout(60)
+            await self._page.mouse.up()
+            await self._page.wait_for_timeout(200)
+            return
+        try:
+            await play.focus(timeout=3_000)
+            await self._page.keyboard.press("Enter")
+            await self._page.wait_for_timeout(200)
+        except PlaywrightTimeoutError:
+            pass
+        await self._reliable_menu_click(play)
+
     def _track_menu_attempts(self) -> int:
         try:
             return max(1, int(os.environ.get("POLYTRACK_TRACK_MENU_ATTEMPTS", "4")))
@@ -627,9 +671,15 @@ class GameBridge:
 
     def _track_menu_wait_ms(self) -> int:
         try:
-            return max(5_000, int(os.environ.get("POLYTRACK_TRACK_MENU_WAIT_MS", "60000")))
+            return max(5_000, int(os.environ.get("POLYTRACK_TRACK_MENU_WAIT_MS", "180000")))
         except ValueError:
-            return 60_000
+            return 180_000
+
+    def _track_menu_min_tracks(self) -> int:
+        try:
+            return max(1, int(os.environ.get("POLYTRACK_TRACK_MENU_MIN_TRACKS", "1")))
+        except ValueError:
+            return 1
 
     def _track_button_locator(self) -> Locator:
         """Prefer `.menu .track-selection`; fall back if DOM nesting differs (headless quirks)."""
@@ -643,7 +693,8 @@ class GameBridge:
 
     async def _wait_until_track_rows_ready(self, timeout_ms: int) -> None:
         """Prefer this over Locator.wait_for(visible) — headless often fails strict visibility."""
-        await self._page.wait_for_function(_TRACK_ROWS_READY_JS, timeout=timeout_ms)
+        arg = {"min": self._track_menu_min_tracks()}
+        await self._page.wait_for_function(_TRACK_ROWS_READY_JS, arg=arg, timeout=timeout_ms)
 
     async def _open_track_picker_or_raise(self, *, wait_ms: int) -> None:
         """Click main-menu Play and wait until a track row button exists (visible)."""
@@ -651,13 +702,8 @@ class GameBridge:
         play = self._page.locator(
             '#ui .menu button.button-image:has(img[src*="play.svg"])'
         )
-        await self._reliable_menu_click(play)
+        await self._click_main_menu_play(play)
         await self._page.wait_for_timeout(450)
-        try:
-            await self._page.keyboard.press("Enter")
-        except Exception:
-            pass
-        await self._page.wait_for_timeout(250)
         await self._dismiss_message_boxes_js()
         await self._dismiss_blocking_message_boxes()
         tracks = self._track_button_locator()
@@ -671,13 +717,8 @@ class GameBridge:
         if n == 0 or not vis:
             try:
                 if await play.is_visible():
-                    await self._reliable_menu_click(play)
+                    await self._click_main_menu_play(play)
                     await self._page.wait_for_timeout(500)
-                    try:
-                        await self._page.keyboard.press("Enter")
-                    except Exception:
-                        pass
-                    await self._page.wait_for_timeout(250)
                     await self._dismiss_message_boxes_js()
                     await self._dismiss_blocking_message_boxes()
             except Exception:
@@ -716,10 +757,11 @@ class GameBridge:
                 if attempt + 1 >= attempts:
                     raise RuntimeError(
                         "track menu: timed out waiting for track list after Play "
-                        f"({attempts} attempt(s); stagger workers with "
-                        "POLYTRACK_WORKER_STAGGER_S, increase "
-                        "POLYTRACK_TRACK_MENU_WAIT_MS / POLYTRACK_TRACK_MENU_ATTEMPTS, "
-                        "or run --num-envs 1 --vec-env dummy)"
+                        f"({attempts} attempt(s); poly tracks load from the HTTP server and "
+                        "can take minutes on slow disks — increase POLYTRACK_TRACK_MENU_WAIT_MS "
+                        f"(default {self._track_menu_wait_ms()} ms), POLYTRACK_TRACK_MENU_ATTEMPTS, "
+                        "POLYTRACK_WORKER_STAGGER_S, reduce --num-envs, or use "
+                        "--num-envs 1 --vec-env dummy)"
                     ) from e
 
         buttons = self._track_button_locator()
