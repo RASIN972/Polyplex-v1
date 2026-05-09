@@ -635,7 +635,10 @@ class GameBridge:
             await locator.evaluate("el => el.click()")
 
     async def _click_main_menu_play(self, play: Locator) -> None:
-        """First-screen Play: game often ignores synthetic ``el.click()``; use real mouse + Enter fallback."""
+        """Single activation for first-screen Play: real pointer press (game ignores synthetic DOM click).
+
+        Call at most once per picker open — a second press can dismiss the track list or return to menu.
+        """
         await play.scroll_into_view_if_needed(timeout=15_000)
         await self._page.wait_for_timeout(150)
         box = await play.bounding_box()
@@ -655,12 +658,6 @@ class GameBridge:
             await self._page.mouse.up()
             await self._page.wait_for_timeout(200)
             return
-        try:
-            await play.focus(timeout=3_000)
-            await self._page.keyboard.press("Enter")
-            await self._page.wait_for_timeout(200)
-        except PlaywrightTimeoutError:
-            pass
         await self._reliable_menu_click(play)
 
     def _track_menu_attempts(self) -> int:
@@ -697,7 +694,7 @@ class GameBridge:
         await self._page.wait_for_function(_TRACK_ROWS_READY_JS, arg=arg, timeout=timeout_ms)
 
     async def _open_track_picker_or_raise(self, *, wait_ms: int) -> None:
-        """Click main-menu Play and wait until a track row button exists (visible)."""
+        """Click main-menu Play once, then wait for track rows (no second Play — that can back out)."""
         await self._wait_until_play_visible()
         play = self._page.locator(
             '#ui .menu button.button-image:has(img[src*="play.svg"])'
@@ -706,23 +703,6 @@ class GameBridge:
         await self._page.wait_for_timeout(450)
         await self._dismiss_message_boxes_js()
         await self._dismiss_blocking_message_boxes()
-        tracks = self._track_button_locator()
-        n = await tracks.count()
-        vis = False
-        if n > 0:
-            try:
-                vis = await tracks.first.is_visible()
-            except Exception:
-                vis = False
-        if n == 0 or not vis:
-            try:
-                if await play.is_visible():
-                    await self._click_main_menu_play(play)
-                    await self._page.wait_for_timeout(500)
-                    await self._dismiss_message_boxes_js()
-                    await self._dismiss_blocking_message_boxes()
-            except Exception:
-                pass
         await self._wait_until_track_rows_ready(wait_ms)
 
     async def start_track_menu_index(self, index: int = 0) -> None:
