@@ -30,6 +30,7 @@ EPISODE_TIME_LIMIT_S = 60.0
 MAX_CRASHES = 3
 PI_F = float(np.pi)
 DEFAULT_TRACK_MENU_INDEX = 0
+RESET_RETRIES = int(os.environ.get("POLYTRACK_RESET_RETRIES", "2"))
 
 
 def _polytrack_debug_chain() -> bool:
@@ -220,9 +221,31 @@ class PolytrackEnv(gym.Env):
                 print(">>> RESET _go: _wait_for_game_ready done, get_state ...", flush=True)
             return await self._bridge.get_state()
 
+        async def _go_with_retry() -> dict[str, Any]:
+            last_exc: Exception | None = None
+            for attempt in range(max(1, RESET_RETRIES + 1)):
+                try:
+                    return await _go()
+                except Exception as exc:
+                    last_exc = exc
+                    if attempt < RESET_RETRIES:
+                        print(
+                            f"[polytrack_env] reset attempt {attempt + 1} failed "
+                            f"({type(exc).__name__}: {exc}); retrying with fresh browser ...",
+                            flush=True,
+                        )
+                        try:
+                            if self._bridge is not None:
+                                await self._bridge.close()
+                        except Exception:
+                            pass
+                        self._bridge = None
+            assert last_exc is not None
+            raise last_exc
+
         if dbg:
             print(">>> RESET: entering event loop (_run _go)", flush=True)
-        s0 = self._run(_go())
+        s0 = self._run(_go_with_retry())
         self._last_pos = None
         self._last_euler = None
         self._last_cp = int(s0.get("checkpoint_index") or 0)
