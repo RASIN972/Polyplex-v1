@@ -588,12 +588,6 @@ class GameBridge:
                         break
                     except Exception:
                         pass
-        if not any_clicked:
-            try:
-                await self._page.keyboard.press("Escape")
-                await self._page.wait_for_timeout(250)
-            except Exception:
-                pass
         return any_clicked
 
     def _menu_play_wait_timeout_s(self) -> float:
