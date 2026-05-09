@@ -200,6 +200,8 @@ python training/train_ppo.py
 If reset times out waiting for the car to be “ready”, increase seconds with env  
 `POLYTRACK_READY_TIMEOUT_S` (default **300** in `polytrack_env.py`).
 
+**Windows / Playwright:** The monitor may sit at **0 steps** for a while while workers open the **track menu**. The bridge **retries** opening the track list (`POLYTRACK_TRACK_MENU_ATTEMPTS`, default 4; `POLYTRACK_TRACK_MENU_WAIT_MS` per attempt), uses a **fallback DOM selector** if `.menu` nesting differs, and **staggers** subprocess workers by default (`POLYTRACK_WORKER_STAGGER_S`, default 2.5s × worker index) to ease 8× Chromium load. **Ctrl+C** or a dead worker often surfaces `TargetClosedError`, `KeyboardInterrupt`, then `BrokenPipeError` / `EOFError` — see **`docs/WINDOWS_TRAINING.md`**; failures are also in **`logs/last_training_error.txt`**.
+
 Optional: `python training/train_ppo.py --headless` to reduce GPU/RAM use; headed mode is heavier on an 8 GB machine—close other apps and expect swapping if memory is tight.
 
 **Phase order**

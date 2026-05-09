@@ -3,6 +3,14 @@
 
 By default starts **eight** servers on ports **8080–8087** (one per parallel env).
 On macOS/Linux extra servers use background subprocesses; see ``utils/launch_servers.py``.
+
+Windows / Playwright: the first ``env.reset()`` path waits for the in-game track menu
+(DOM selector timeout is 120s in ``GameBridge``). Wall time before Steps tick or before
+a failure can be **~3 minutes** (e.g. ~2m54s reported). If the menu never appears you
+get ``RuntimeError: track menu: timed out waiting for track list after Play`` — see
+``docs/WINDOWS_TRAINING.md`` (startup errors). Ctrl+C often prints long Playwright /
+``multiprocessing`` tracebacks and ``BrokenPipeError`` while workers tear down; that is
+expected; HTTP server processes may still be running.
 """
 
 from __future__ import annotations
@@ -22,6 +30,8 @@ def main() -> int:
         " ║  Polyplex — local PPO training (8 parallel envs by default)     ║\n"
         " ║  • HTTP servers: 127.0.0.1:8080–8087 (see logs/)            ║\n"
         " ║  • Ctrl+C stops training — servers may keep running         ║\n"
+        " ║  • First reset may take ~3 min (track menu) — see WINDOWS  ║\n"
+        " ║    training doc for timeouts / Ctrl+C worker noise          ║\n"
         " ║  • Docs: CONTEXT.md, docs/WINDOWS_TRAINING.md               ║\n"
         " ╚══════════════════════════════════════════════════════════════╝\n",
         flush=True,

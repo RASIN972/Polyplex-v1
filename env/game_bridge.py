@@ -14,7 +14,14 @@ import os
 import time
 from typing import Any
 
-from playwright.async_api import Browser, Page, Playwright, TimeoutError as PlaywrightTimeoutError, async_playwright
+from playwright.async_api import (
+    Browser,
+    Locator,
+    Page,
+    Playwright,
+    TimeoutError as PlaywrightTimeoutError,
+    async_playwright,
+)
 
 from env.chromium_launch_args import (
     POLYTRACK_CHROMIUM_IGNORE_DEFAULT_ARGS,
@@ -591,6 +598,57 @@ class GameBridge:
         except PlaywrightTimeoutError:
             await locator.evaluate("el => el.click()")
 
+    def _track_menu_attempts(self) -> int:
+        try:
+            return max(1, int(os.environ.get("POLYTRACK_TRACK_MENU_ATTEMPTS", "4")))
+        except ValueError:
+            return 4
+
+    def _track_menu_wait_ms(self) -> int:
+        try:
+            return max(5_000, int(os.environ.get("POLYTRACK_TRACK_MENU_WAIT_MS", "60000")))
+        except ValueError:
+            return 60_000
+
+    def _track_button_locator(self) -> Locator:
+        """Prefer `.menu .track-selection`; fall back if DOM nesting differs (headless quirks)."""
+        narrow = self._page.locator(
+            "#ui .menu .track-selection .tracks-container .track button"
+        )
+        wide = self._page.locator(
+            "#ui .track-selection .tracks-container .track button"
+        )
+        return narrow.or_(wide)
+
+    async def _open_track_picker_or_raise(self, *, wait_ms: int) -> None:
+        """Click main-menu Play and wait until a track row button exists (visible)."""
+        await self._wait_until_play_visible()
+        play = self._page.locator(
+            '#ui .menu button.button-image:has(img[src*="play.svg"])'
+        )
+        await self._reliable_menu_click(play)
+        await self._page.wait_for_timeout(750)
+        await self._dismiss_message_boxes_js()
+        await self._dismiss_blocking_message_boxes()
+        tracks = self._track_button_locator()
+        n = await tracks.count()
+        vis = False
+        if n > 0:
+            try:
+                vis = await tracks.first.is_visible()
+            except Exception:
+                vis = False
+        if n == 0 or not vis:
+            try:
+                if await play.is_visible():
+                    await self._reliable_menu_click(play)
+                    await self._page.wait_for_timeout(800)
+                    await self._dismiss_message_boxes_js()
+                    await self._dismiss_blocking_message_boxes()
+            except Exception:
+                pass
+        await tracks.first.wait_for(state="visible", timeout=wait_ms)
+
     async def start_track_menu_index(self, index: int = 0) -> None:
         await self._page.evaluate(_RECOVERY_JS)
         try:
@@ -605,19 +663,31 @@ class GameBridge:
         except PlaywrightTimeoutError:
             pass
         await self._page.evaluate(_RESUME_AUDIO_CONTEXT_JS)
-        await self._wait_until_play_visible()
-        play = self._page.locator(
-            '#ui .menu button.button-image:has(img[src*="play.svg"])'
-        )
-        await self._reliable_menu_click(play)
-        sel = "#ui .menu .track-selection .tracks-container .track button"
-        try:
-            await self._page.wait_for_selector(sel, state="visible", timeout=120_000)
-        except PlaywrightTimeoutError as e:
-            raise RuntimeError(
-                "track menu: timed out waiting for track list after Play"
-            ) from e
-        buttons = self._page.locator(sel)
+
+        attempts = self._track_menu_attempts()
+        wait_ms = self._track_menu_wait_ms()
+        for attempt in range(attempts):
+            try:
+                await self._open_track_picker_or_raise(wait_ms=wait_ms)
+                break
+            except PlaywrightTimeoutError as e:
+                try:
+                    await self._page.keyboard.press("Escape")
+                except Exception:
+                    pass
+                await self._page.wait_for_timeout(500)
+                await self._dismiss_message_boxes_js()
+                await self._dismiss_blocking_message_boxes()
+                if attempt + 1 >= attempts:
+                    raise RuntimeError(
+                        "track menu: timed out waiting for track list after Play "
+                        f"({attempts} attempt(s); stagger workers with "
+                        "POLYTRACK_WORKER_STAGGER_S, increase "
+                        "POLYTRACK_TRACK_MENU_WAIT_MS / POLYTRACK_TRACK_MENU_ATTEMPTS, "
+                        "or run --num-envs 1 --vec-env dummy)"
+                    ) from e
+
+        buttons = self._track_button_locator()
         n = await buttons.count()
         if n == 0:
             raise RuntimeError("track menu: no track buttons (empty list?)")
@@ -708,9 +778,13 @@ class FinishDebugGameBridge:
             )
             return
         idx = self._reenter_track_index
-        buttons = self._page.locator(
+        narrow = self._page.locator(
             "#ui .menu .track-selection .tracks-container .track button"
         )
+        wide = self._page.locator(
+            "#ui .track-selection .tracks-container .track button"
+        )
+        buttons = narrow.or_(wide)
         n = await buttons.count()
         if n == 0:
             agent_debug_log(

@@ -25,6 +25,12 @@
    python run_local_training.py
    ```
 
+   **Startup timing:** The training monitor can sit at **0 / 1,000,000 steps** for a few minutes while Playwright drives each parallel env through **Play → track menu**. The bridge now **retries** this flow (see env vars `POLYTRACK_TRACK_MENU_*`) and **staggers** worker startup (`POLYTRACK_WORKER_STAGGER_S`, default 2.5s). A single attempt waits up to **60s** by default for the track list; with retries, expect a few minutes before **Steps** increase or a hard failure.
+
+   **If training stops with `RuntimeError: track menu: timed out waiting for track list after Play`:** Playwright never saw `#ui .menu .track-selection .tracks-container .track button`. Typical causes: game bundle not fully loaded over HTTP, UI layout changed, machine too saturated with 8 Chromium instances, or headless rendering quirks. Try `--num-envs 1 --vec-env dummy` first to verify one browser path, check `logs/polytrack_http_server_*.log`, and confirm the game opens manually at `http://127.0.0.1:8080/`.
+
+   **Ctrl+C / stopping:** You may see `KeyboardInterrupt`, `TargetClosedError: ... browser has been closed`, then `BrokenPipeError` / `EOFError` from `SubprocVecEnv` while the parent process exits — that is shutdown noise after interrupt or after a worker dies. Full tracebacks from the main training failure are written to `logs/last_training_error.txt`. HTTP servers are separate processes and may need to be stopped manually (see below).
+
    Or only training (after servers are up):
 
    ```bat
@@ -39,6 +45,9 @@
 | **8 envs, subprocesses (default)** | `python training/train_ppo.py` |
 | **Single-process debug (no multiprocessing)** | `python training\train_ppo.py --num-envs 1 --vec-env dummy` |
 | **Skip auto-launch of HTTP servers** | `set POLYTRACK_SKIP_SERVER_LAUNCH=1` then run `run_local_training.py` |
+| **Stagger parallel env workers (seconds × worker index)** | `POLYTRACK_WORKER_STAGGER_S` (default **2.5**; set **0** to disable) |
+| **Track menu: wait per attempt (ms)** | `POLYTRACK_TRACK_MENU_WAIT_MS` (default **60000**) |
+| **Track menu: retry open Play → list** | `POLYTRACK_TRACK_MENU_ATTEMPTS` (default **4**) |
 
 ## AMD RX 6750 XT and PyTorch
 

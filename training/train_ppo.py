@@ -118,6 +118,7 @@ def main() -> None:
             track_index=args.track_index,
             headless=headless,
             monitor_file=str(monitor_dir / f"polytrack_{ports[i]}.csv"),
+            worker_index=i,
         )
         for i in range(num_envs)
     ]
