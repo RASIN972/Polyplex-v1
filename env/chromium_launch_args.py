@@ -11,6 +11,7 @@ Windows often OOM or crash; use the default GPU/ANGLE stack instead.
 
 from __future__ import annotations
 
+import os
 import sys
 
 # Shared by headed and headless (no --use-gl here; see polytrack_chromium_launch_args).
@@ -34,10 +35,28 @@ POLYTRACK_CHROMIUM_ARG_DISABLE_DEV_SHM: str = "--disable-dev-shm-usage"
 
 
 def polytrack_chromium_launch_args(*, headless: bool) -> tuple[str, ...]:
-    """Launch flags for Playwright Chromium. Headed uses GPU; headless uses SwiftShader."""
+    """Launch flags for Playwright Chromium.
+
+    Headed: real GPU/ANGLE (no SwiftShader — eight parallel software renderers often OOM on Windows).
+
+    Headless: **Linux / CI** defaults to SwiftShader so WebGL works without a GPU. **Windows**
+    desktop defaults to **no** ``--use-gl=swiftshader`` so menus/WebGL follow the normal D3D/ANGLE
+    stack (SwiftShader is a common cause of “track list never appears” vs headed). Override with
+    ``POLYTRACK_HEADLESS_USE_SWIFTSHADER=1`` to force software GL on Windows (e.g. VM without GPU).
+    """
     args = list(_POLYTRACK_CHROMIUM_LAUNCH_ARGS_BASE)
     if headless:
-        args.extend(_SWIFTSHADER_GL)
+        use_sw = os.environ.get("POLYTRACK_HEADLESS_USE_SWIFTSHADER", "").strip().lower()
+        force_swift = use_sw in ("1", "true", "yes")
+        force_no_swift = use_sw in ("0", "false", "no")
+        if force_swift:
+            args.extend(_SWIFTSHADER_GL)
+        elif force_no_swift:
+            pass
+        elif sys.platform.startswith("win32"):
+            pass
+        else:
+            args.extend(_SWIFTSHADER_GL)
     if sys.platform.startswith("linux"):
         args.append(POLYTRACK_CHROMIUM_ARG_DISABLE_DEV_SHM)
     return tuple(args)

@@ -287,6 +287,27 @@ _PROBE_JS = """
 """
 
 
+# Headless Chromium often keeps menu buttons off Playwright's "visible" radar (opacity/paint).
+# Treat rows as ready when layout says they have real size and are not display:none.
+_TRACK_ROWS_READY_JS = """
+() => {
+  const sel = "#ui .track-selection .tracks-container .track button";
+  const rows = document.querySelectorAll(sel);
+  if (!rows.length) return false;
+  for (const btn of rows) {
+    const st = getComputedStyle(btn);
+    if (st.display === "none" || st.visibility === "hidden") continue;
+    const r = btn.getBoundingClientRect();
+    if (r.width < 2 || r.height < 2) continue;
+    const op = parseFloat(st.opacity);
+    if (!Number.isNaN(op) && op < 0.05) continue;
+    return true;
+  }
+  return false;
+}
+"""
+
+
 async def collect_dom_probe(page: Page) -> dict[str, Any]:
     return await page.evaluate(_PROBE_JS)
 
@@ -620,6 +641,10 @@ class GameBridge:
         )
         return narrow.or_(wide)
 
+    async def _wait_until_track_rows_ready(self, timeout_ms: int) -> None:
+        """Prefer this over Locator.wait_for(visible) — headless often fails strict visibility."""
+        await self._page.wait_for_function(_TRACK_ROWS_READY_JS, timeout=timeout_ms)
+
     async def _open_track_picker_or_raise(self, *, wait_ms: int) -> None:
         """Click main-menu Play and wait until a track row button exists (visible)."""
         await self._wait_until_play_visible()
@@ -627,7 +652,12 @@ class GameBridge:
             '#ui .menu button.button-image:has(img[src*="play.svg"])'
         )
         await self._reliable_menu_click(play)
-        await self._page.wait_for_timeout(750)
+        await self._page.wait_for_timeout(450)
+        try:
+            await self._page.keyboard.press("Enter")
+        except Exception:
+            pass
+        await self._page.wait_for_timeout(250)
         await self._dismiss_message_boxes_js()
         await self._dismiss_blocking_message_boxes()
         tracks = self._track_button_locator()
@@ -642,12 +672,17 @@ class GameBridge:
             try:
                 if await play.is_visible():
                     await self._reliable_menu_click(play)
-                    await self._page.wait_for_timeout(800)
+                    await self._page.wait_for_timeout(500)
+                    try:
+                        await self._page.keyboard.press("Enter")
+                    except Exception:
+                        pass
+                    await self._page.wait_for_timeout(250)
                     await self._dismiss_message_boxes_js()
                     await self._dismiss_blocking_message_boxes()
             except Exception:
                 pass
-        await tracks.first.wait_for(state="visible", timeout=wait_ms)
+        await self._wait_until_track_rows_ready(wait_ms)
 
     async def start_track_menu_index(self, index: int = 0) -> None:
         await self._page.evaluate(_RECOVERY_JS)
