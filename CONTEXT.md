@@ -92,6 +92,17 @@ Used by `PolytrackEnv` (`MAX_TRACK_LENGTH = 2000` for future dist features):
 | 10–11 | distance to next 2 checkpoints | ÷ `MAX_TRACK_LENGTH` (**currently 0** until track geometry is exposed) |
 | 12 | time since last checkpoint (s) | ÷ 30 |
 
+### Future: checkpoint-relative observations (deferred)
+
+- **Car position** is already in `get_state()` / `__rlState.position`.
+- The **game bundle** exposes checkpoint **x,y,z** and **`checkpointOrder`** (e.g. `getCheckpoints()` around the track class in `polytrackcopy/js/9209-dist-main.bundle.js`); the RL bridge does **not** read this yet.
+- **When implementing:** extend `_RL_INIT_JS` / `get_state()` to resolve the row matching `getNextCheckpointIndex()`, verify the same coordinate frame as `advancedCar.getPosition()`, then feed **Δx, Δy, Δz** (or car-frame goal vector) into obs — e.g. grow the Box beyond 13 or fill obs indices 10–11 with horizontal distance / bearing.
+
+### Future: collision / impact signal (deferred)
+
+- **`advancedCar.getCollisionImpulses()`** in the game bundle returns Bullet **`getAppliedImpulse()`** values for contacts involving the car (same path the game uses for collision audio, e.g. strong impulses). This is **real contact data**, unlike today’s **`crashed_or_reset`** heuristics in `_RL_INIT_JS`.
+- **When implementing:** in the `requestAnimationFrame` tick, call `getCollisionImpulses()` when `car` exists; expose e.g. **max impulse this frame**, **sum**, or a **thresholded “hard hit”** flag via `__rlState` + `get_state()` for reward shaping or episode termination instead of guessing.
+
 ## Action space
 
 `Discrete(9)` — maps index to WASD combination:
@@ -114,10 +125,11 @@ ACTION_MAP = {
 
 ```text
 reward = 0
-reward += (speed / 200) * 0.01
-reward += 2.0   # if new checkpoint this step (index increased)
+reward += (horizontal_speed_m_s / 100) * 0.01  # XZ-plane only — no reward for falling off-track
+reward += 5.0   # if new checkpoint this step (index increased) — raised from 2.0
 reward -= 1.0   # if crashed_or_reset this step
 reward -= 0.001 # time penalty every step
+# escalating penalty for not hitting a checkpoint: −0.002 × (seconds_since_last_cp − 15) if > 15 s
 ```
 
 ## Episode termination (`PolytrackEnv.step`)

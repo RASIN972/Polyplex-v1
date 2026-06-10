@@ -169,14 +169,36 @@ class PolytrackEnv(gym.Env):
         cp_now: int,
         crashed: bool,
     ) -> float:
-        speed = float(s.get("speed") or 0.0)
         r = 0.0
-        r += (speed / 200.0) * 0.01
+
+        # Horizontal speed only (XZ plane) — rewards staying on track and moving forward,
+        # not falling off into voids which boosts scalar speed via gravity.
+        if self._last_pos is not None:
+            cur_x = float(s["position"]["x"])
+            cur_z = float(s["position"]["z"])
+            dx = cur_x - self._last_pos[0]
+            dz = cur_z - self._last_pos[2]
+            horiz_speed_ms = float(np.sqrt(dx * dx + dz * dz)) / STEP_WAIT_S
+            r += (horiz_speed_ms / 100.0) * 0.01
+
+        # Checkpoint reward (increased from 2.0 → 5.0 per checkpoint).
         if cp_now > cp_prev:
-            r += 2.0 * float(cp_now - cp_prev)
+            r += 5.0 * float(cp_now - cp_prev)
+
+        # Crash penalty.
         if crashed:
             r -= 1.0
+
+        # Per-step time penalty.
         r -= 0.001
+
+        # Penalty for not making checkpoint progress: if time since last checkpoint
+        # exceeds 15 s, subtract a small escalating penalty per second over that.
+        te = float(s.get("time_elapsed") or 0.0)
+        tscp = te - self._cp_game_time
+        if tscp > 15.0:
+            r -= 0.002 * (tscp - 15.0)
+
         return r
 
     def reset(
