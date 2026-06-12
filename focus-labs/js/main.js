@@ -334,6 +334,45 @@
     if (progressEl) progressEl.style.width = "100%";
   }
 
+  /* ---------------- Sticky mobile CTA ---------------- */
+  /* Appears once the hero is scrolled past, retreats while the real
+     CTA section (or footer) is on screen. */
+
+  var stickyCta = document.getElementById("stickyCta");
+  var heroSection = document.getElementById("hero");
+  var ctaSection = document.getElementById("cta");
+
+  if (stickyCta && heroSection && ctaSection && hasIO) {
+    var pastHero = false;
+    var ctaOnScreen = false;
+
+    var syncSticky = function () {
+      stickyCta.classList.toggle("is-shown", pastHero && !ctaOnScreen);
+    };
+
+    new IntersectionObserver(function (entries) {
+      pastHero = !entries[0].isIntersecting;
+      syncSticky();
+    }, { threshold: 0.05 }).observe(heroSection);
+
+    new IntersectionObserver(function (entries) {
+      ctaOnScreen = entries[0].isIntersecting;
+      syncSticky();
+    }, { threshold: 0.1 }).observe(ctaSection);
+  }
+
+  /* ---------------- FAQ accordion ---------------- */
+
+  var faqItems = document.querySelectorAll(".faq__item");
+  faqItems.forEach(function (item) {
+    item.addEventListener("toggle", function () {
+      if (!item.open) return;
+      faqItems.forEach(function (other) {
+        if (other !== item) other.open = false;
+      });
+    });
+  });
+
   /* ---------------- Early access form ---------------- */
 
   var accessForm = document.getElementById("accessForm");

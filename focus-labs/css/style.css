@@ -3,13 +3,31 @@
    ========================================================================== */
 
 :root {
-  --bg: #07080a;
-  --bg-raised: #0c0e11;
+  /* Dark scale — five depths, used to stage the narrative:
+     the page sinks to its darkest in Act I and brightens toward the reveal */
+  --bg-000: #030406;
+  --bg-100: #07080a;
+  --bg-200: #0a0c0f;
+  --bg-300: #0e1014;
+  --bg-400: #131619;
+
+  /* Silver scale — seven steps from white-hot to gunmetal */
+  --silver-100: #ffffff;
+  --silver-200: #eef0f3;
+  --silver-300: #d7dae0;
+  --silver-400: #b4bac4;
+  --silver-500: #8b919c;
+  --silver-600: #5c616b;
+  --silver-700: #383c44;
+
+  /* Semantic aliases */
+  --bg: var(--bg-100);
+  --bg-raised: var(--bg-200);
   --ink: #f4f5f7;
   --ink-dim: #9aa0ab;
-  --ink-faint: #5c616b;
-  --silver-1: #ffffff;
-  --silver-2: #d7dae0;
+  --ink-faint: var(--silver-600);
+  --silver-1: var(--silver-100);
+  --silver-2: var(--silver-300);
   --silver-3: #aab0ba;
   --line: rgba(215, 218, 224, 0.1);
   --glass: rgba(255, 255, 255, 0.03);
@@ -108,22 +126,49 @@ h1, h2, h3 { font-family: var(--font-display); font-weight: 500; margin: 0; }
   pointer-events: none;
 }
 
-/* Glassmorphism card base */
+/* Glassmorphism card base — gradient hairline border (lit from the
+   top-left, like the Linear/Stripe card treatment) over a top-lit fill */
 .glass {
-  background: var(--glass);
-  border: 1px solid var(--line);
+  position: relative;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.05), rgba(255, 255, 255, 0.012) 38%),
+    var(--glass);
+  border: 1px solid transparent;
   border-radius: 20px;
   backdrop-filter: blur(14px);
   -webkit-backdrop-filter: blur(14px);
-  transition: background 0.4s var(--ease-out), border-color 0.4s var(--ease-out),
+  transition: background 0.4s var(--ease-out),
               transform 0.4s var(--ease-out), box-shadow 0.4s var(--ease-out);
 }
 
-.glass:hover {
-  background: var(--glass-hover);
-  border-color: rgba(215, 218, 224, 0.22);
-  box-shadow: 0 24px 60px -28px rgba(0, 0, 0, 0.8), 0 0 0 1px rgba(255, 255, 255, 0.02) inset;
+.glass::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  padding: 1px;
+  background: linear-gradient(165deg,
+    rgba(238, 240, 243, 0.22),
+    rgba(238, 240, 243, 0.04) 38%,
+    rgba(238, 240, 243, 0.02) 62%,
+    rgba(238, 240, 243, 0.1));
+  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+  mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  mask-composite: exclude;
+  pointer-events: none;
+  opacity: 0.85;
+  transition: opacity 0.4s var(--ease-out);
 }
+
+.glass:hover {
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.07), rgba(255, 255, 255, 0.02) 38%),
+    var(--glass-hover);
+  box-shadow: 0 24px 60px -28px rgba(0, 0, 0, 0.8);
+}
+
+.glass:hover::before { opacity: 1; }
 
 /* Tactile press feedback on touch devices (tilt handles desktop) */
 @media (pointer: coarse) {
@@ -494,6 +539,51 @@ body.cursor-hover .cursor-ring {
 
 .hero__stars { color: var(--silver-2); letter-spacing: 0.15em; font-size: 0.8rem; }
 
+/* Social proof — avatar stack */
+.hero__proof {
+  margin-top: 2.4rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.9rem;
+}
+
+.avatars { display: flex; }
+
+.avatar {
+  width: 34px; height: 34px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  font-family: var(--font-display);
+  font-size: 0.6rem;
+  font-weight: 500;
+  letter-spacing: 0.05em;
+  color: var(--silver-200);
+  background: linear-gradient(160deg, var(--silver-700), var(--bg-300));
+  border: 2px solid var(--bg-100);
+  margin-left: -10px;
+  box-shadow: 0 4px 12px -4px rgba(0, 0, 0, 0.6);
+}
+
+.avatar:first-child { margin-left: 0; }
+
+.avatar--more {
+  color: var(--bg-100);
+  background: linear-gradient(160deg, var(--silver-200), var(--silver-400));
+  font-size: 0.56rem;
+}
+
+.hero__proof-text {
+  font-size: 0.82rem;
+  color: var(--ink-faint);
+  text-align: left;
+  max-width: 230px;
+  line-height: 1.45;
+}
+
+.hero__proof-text strong { color: var(--silver-300); font-weight: 500; }
+
 .hero__scroll {
   position: absolute;
   bottom: 2.2rem;
@@ -612,8 +702,12 @@ body.cursor-hover .cursor-ring {
 [data-reveal].is-visible { opacity: 1; transform: none; }
 
 /* ==========================================================================
-   The problem (Act I)
+   The problem (Act I) — the page sinks to its darkest point here
    ========================================================================== */
+
+.problem {
+  background: linear-gradient(180deg, var(--bg-100) 0%, var(--bg-000) 45%, var(--bg-100) 100%);
+}
 
 .cards3 {
   display: grid;
@@ -677,11 +771,12 @@ body.cursor-hover .cursor-ring {
    Imagine (Act II)
    ========================================================================== */
 
+/* Light begins to return through Act II… */
 .imagine {
   position: relative;
   padding: clamp(6rem, 13vw, 11rem) 0;
   text-align: center;
-  background: var(--bg-raised);
+  background: linear-gradient(180deg, var(--bg-100) 0%, var(--bg-300) 55%, var(--bg-200) 100%);
   border-block: 1px solid var(--line);
   overflow: hidden;
 }
@@ -743,11 +838,13 @@ body.cursor-hover .cursor-ring {
    The reveal (Act III)
    ========================================================================== */
 
+/* …and Act III is the brightest moment on the page */
 .reveal {
   position: relative;
   padding: clamp(7rem, 15vw, 13rem) 0 clamp(5rem, 10vw, 8rem);
   text-align: center;
   overflow: hidden;
+  background: linear-gradient(180deg, var(--bg-200) 0%, var(--bg-400) 50%, var(--bg-100) 100%);
 }
 
 .reveal__glow {
@@ -1085,6 +1182,132 @@ body.cursor-hover .cursor-ring {
 }
 
 /* ==========================================================================
+   Mid-page CTA
+   ========================================================================== */
+
+.midcta { padding: 0 0 clamp(4rem, 8vw, 6rem); }
+
+.midcta__inner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 1.4rem;
+  padding: 2rem 2.2rem;
+  background:
+    radial-gradient(ellipse 70% 120% at 15% 0%, rgba(190, 197, 208, 0.09), transparent 60%),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.05), rgba(255, 255, 255, 0.012) 38%),
+    var(--glass);
+}
+
+.midcta__title {
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: clamp(1.25rem, 2.6vw, 1.6rem);
+  font-weight: 500;
+  letter-spacing: -0.015em;
+}
+
+.midcta__sub {
+  margin: 0.3rem 0 0;
+  font-size: 0.88rem;
+  color: var(--ink-faint);
+}
+
+/* ==========================================================================
+   FAQ
+   ========================================================================== */
+
+.faq__container { max-width: 780px; }
+
+.faq__list { display: grid; gap: 0.8rem; }
+
+.faq__item { border-radius: 16px; }
+
+.faq__item summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 1.25rem 1.5rem;
+  cursor: pointer;
+  list-style: none;
+  font-family: var(--font-display);
+  font-size: 0.98rem;
+  font-weight: 500;
+  color: var(--silver-200);
+  -webkit-tap-highlight-color: transparent;
+}
+
+.faq__item summary::-webkit-details-marker { display: none; }
+
+.faq__chev {
+  flex: 0 0 auto;
+  width: 26px; height: 26px;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  font-family: var(--font-body);
+  font-weight: 300;
+  font-size: 1rem;
+  color: var(--silver-400);
+  background: rgba(255, 255, 255, 0.04);
+  transition: transform 0.4s var(--ease-out), background 0.3s, color 0.3s;
+}
+
+.faq__item[open] .faq__chev {
+  transform: rotate(45deg);
+  background: var(--silver-200);
+  color: var(--bg-100);
+}
+
+.faq__item p {
+  margin: 0;
+  padding: 0 3.4rem 1.4rem 1.5rem;
+  font-size: 0.92rem;
+  color: var(--ink-dim);
+  animation: faqOpen 0.45s var(--ease-out);
+}
+
+@keyframes faqOpen {
+  from { opacity: 0; transform: translateY(-6px); }
+}
+
+/* ==========================================================================
+   Sticky mobile CTA
+   ========================================================================== */
+
+.sticky-cta {
+  position: fixed;
+  left: 50%;
+  bottom: calc(1rem + env(safe-area-inset-bottom, 0px));
+  z-index: 90;
+  display: none;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.9rem 1.7rem;
+  border-radius: 999px;
+  font-family: var(--font-display);
+  font-weight: 500;
+  font-size: 0.92rem;
+  color: var(--bg-100);
+  background: linear-gradient(160deg, var(--silver-100) 0%, var(--silver-300) 45%, var(--silver-500) 100%);
+  box-shadow: 0 14px 44px -8px rgba(0, 0, 0, 0.75), 0 1px 0 rgba(255, 255, 255, 0.65) inset;
+  opacity: 0;
+  transform: translate(-50%, 150%);
+  transition: transform 0.55s var(--ease-out), opacity 0.4s;
+}
+
+.sticky-cta.is-shown {
+  opacity: 1;
+  transform: translate(-50%, 0);
+}
+
+@media (max-width: 720px) {
+  .sticky-cta { display: inline-flex; }
+}
+
+/* ==========================================================================
    Early access form
    ========================================================================== */
 
@@ -1169,7 +1392,24 @@ body.cursor-hover .cursor-ring {
   position: relative;
   color: var(--ink-dim);
   max-width: 460px;
-  margin: 1.6rem auto 2.6rem;
+  margin: 1.6rem auto 0;
+}
+
+.cta__urgency {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.55rem;
+  margin: 1.6rem 0 2.4rem;
+  padding: 0.45rem 1rem;
+  border-radius: 999px;
+  border: 1px solid var(--line);
+  background: rgba(255, 255, 255, 0.025);
+  font-family: var(--font-display);
+  font-size: 0.74rem;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--silver-400);
 }
 
 .cta__actions {
@@ -1316,8 +1556,8 @@ body.cursor-hover .cursor-ring {
   .hero__actions { flex-direction: column; align-items: stretch; gap: 0.7rem; }
   .hero__actions .btn { justify-content: center; padding: 1rem 1.5rem; }
 
-  .hero__meta { justify-content: flex-start; margin-top: 2rem; }
-  .hero__meta span { font-size: 0.78rem; line-height: 1.5; }
+  .hero__proof { justify-content: flex-start; margin-top: 2rem; }
+  .hero__proof-text { font-size: 0.78rem; }
 
   .hero__scroll { bottom: 1.6rem; }
   .hero__scroll-line { height: 32px; }
@@ -1357,8 +1597,18 @@ body.cursor-hover .cursor-ring {
   .stats__grid { gap: 2.2rem 1rem; }
   .stat__label { font-size: 0.74rem; }
 
+  /* --- Mid CTA & FAQ --- */
+  .midcta__inner { flex-direction: column; align-items: stretch; text-align: center; padding: 1.8rem 1.4rem; }
+  .midcta__inner .btn { justify-content: center; }
+  .faq__item summary { padding: 1.1rem 1.2rem; font-size: 0.92rem; }
+  .faq__item p { padding: 0 1.2rem 1.2rem; }
+
   /* --- CTA / form --- */
-  .cta__sub { margin: 1.3rem auto 2rem; }
+  .cta__sub { margin: 1.3rem auto 0; }
+  .cta__urgency { margin: 1.4rem 0 1.8rem; }
+
+  /* keep the last section clear of the sticky CTA */
+  .cta { padding-bottom: 7rem; }
 
   .access-form {
     flex-direction: column;

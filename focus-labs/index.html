@@ -86,14 +86,20 @@
           without a trace. <em class="accent accent--dim">Not even you saw it happen.</em>
         </p>
         <div class="hero__actions" data-reveal data-reveal-delay="650">
-          <a href="#problem" class="btn btn--silver btn--lg" data-magnetic>
-            Why this keeps happening
+          <a href="#cta" class="btn btn--silver btn--lg" data-magnetic>
+            Get early access
+            <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M3 8h10M9 4l4 4-4 4" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          </a>
+          <a href="#problem" class="btn btn--ghost btn--lg" data-magnetic>
+            First — why you keep quitting
             <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M8 3v10M4 9l4 4 4-4" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
           </a>
-          <a href="#cta" class="btn btn--ghost btn--lg" data-magnetic>Skip to early access</a>
         </div>
-        <div class="hero__meta" data-reveal data-reveal-delay="800">
-          <span>For makers, writers, students and founders who do real work — or want to.</span>
+        <div class="hero__proof" data-reveal data-reveal-delay="800">
+          <div class="avatars" aria-hidden="true">
+            <span class="avatar">MK</span><span class="avatar">DR</span><span class="avatar">SL</span><span class="avatar">JT</span><span class="avatar avatar--more">9k</span>
+          </div>
+          <span class="hero__proof-text"><strong>12,400 people</strong> are already waiting. Invites go out every Friday.</span>
         </div>
       </div>
 
@@ -366,6 +372,54 @@
       </div>
     </section>
 
+    <!-- ============ Mid CTA ============ -->
+    <section class="midcta">
+      <div class="container">
+        <div class="midcta__inner glass" data-reveal>
+          <div>
+            <p class="midcta__title">Your first replay could be <em class="accent">tonight.</em></p>
+            <p class="midcta__sub">Two minutes to join. A lifetime of proof.</p>
+          </div>
+          <a href="#cta" class="btn btn--silver" data-magnetic>
+            Get early access
+            <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M3 8h10M9 4l4 4-4 4" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          </a>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============ FAQ ============ -->
+    <section class="section faq" id="faq">
+      <div class="container faq__container">
+        <div class="section__head">
+          <p class="section__eyebrow" data-reveal>Before you ask</p>
+          <h2 class="section__title" data-split>
+            <span class="line">Fair questions,</span>
+            <span class="line text-silver">honest answers.</span>
+          </h2>
+        </div>
+
+        <div class="faq__list">
+          <details class="faq__item glass" data-reveal>
+            <summary>Who can see my recordings?<span class="faq__chev" aria-hidden="true">+</span></summary>
+            <p>Only you. Capture and processing happen entirely on your device — nothing is uploaded, ever, unless you explicitly export and share a replay yourself.</p>
+          </details>
+          <details class="faq__item glass" data-reveal data-reveal-delay="80">
+            <summary>What does early access cost?<span class="faq__chev" aria-hidden="true">+</span></summary>
+            <p>Nothing. Early access is free, and everyone on the waitlist locks in founder pricing for life when paid plans arrive — plus your first session stays free forever.</p>
+          </details>
+          <details class="faq__item glass" data-reveal data-reveal-delay="160">
+            <summary>Which platforms are supported?<span class="faq__chev" aria-hidden="true">+</span></summary>
+            <p>iOS, Android and macOS at launch, with desk-cam and screen capture on all three. Windows is in development and ships shortly after.</p>
+          </details>
+          <details class="faq__item glass" data-reveal data-reveal-delay="240">
+            <summary>When will I get my invite?<span class="faq__chev" aria-hidden="true">+</span></summary>
+            <p>Invites go out in waves every Friday, in order of signup. You'll see your exact position in the welcome email — and you can move up by inviting a friend.</p>
+          </details>
+        </div>
+      </div>
+    </section>
+
     <!-- ============ CTA · Early access ============ -->
     <section class="cta" id="cta">
       <div class="cta__glow" data-parallax="0.08" aria-hidden="true"></div>
@@ -378,6 +432,9 @@
         <p class="cta__sub" data-reveal data-reveal-delay="240">
           Early access opens in waves. Join the waitlist and we'll send
           your invite — plus your first session is on us, forever.
+        </p>
+        <p class="cta__urgency" data-reveal data-reveal-delay="300">
+          <span class="pulse-dot"></span> Wave 4 opens in July · 500 invites
         </p>
 
         <form class="access-form glass" id="accessForm" data-reveal data-reveal-delay="360" novalidate>
@@ -396,6 +453,12 @@
     </section>
 
   </main>
+
+  <!-- ============ Sticky mobile CTA ============ -->
+  <a href="#cta" class="sticky-cta" id="stickyCta">
+    Get early access
+    <svg width="15" height="15" viewBox="0 0 16 16" fill="none"><path d="M3 8h10M9 4l4 4-4 4" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+  </a>
 
   <!-- ============ Footer ============ -->
   <footer class="footer">
