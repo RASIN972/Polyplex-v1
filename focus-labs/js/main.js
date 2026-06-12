@@ -233,6 +233,36 @@
     if (progressEl) progressEl.style.width = "100%";
   }
 
+  /* ---------------- Early access form ---------------- */
+
+  var accessForm = document.getElementById("accessForm");
+  var accessEmail = document.getElementById("accessEmail");
+  var accessSuccess = document.getElementById("accessSuccess");
+
+  if (accessForm && accessEmail && accessSuccess) {
+    accessForm.addEventListener("submit", function (e) {
+      e.preventDefault();
+      var value = accessEmail.value.trim();
+      var valid = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value);
+
+      if (!valid) {
+        accessForm.classList.remove("is-error");
+        // Force a reflow so the shake animation can replay
+        void accessForm.offsetWidth;
+        accessForm.classList.add("is-error");
+        accessEmail.focus();
+        return;
+      }
+
+      accessForm.hidden = true;
+      accessSuccess.hidden = false;
+    });
+
+    accessEmail.addEventListener("input", function () {
+      accessForm.classList.remove("is-error");
+    });
+  }
+
   /* ---------------- Footer year ---------------- */
 
   var yearEl = document.getElementById("year");

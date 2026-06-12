@@ -4,9 +4,9 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Focus Labs — Watch yourself become unstoppable</title>
-  <meta name="description" content="Focus Labs turns your deep work sessions into cinematic timelapses. See your progress, build momentum, stay motivated." />
-  <meta property="og:title" content="Focus Labs — Timelapse your focus" />
-  <meta property="og:description" content="Turn deep work into cinematic timelapses. See your progress. Stay motivated." />
+  <meta name="description" content="Your effort is invisible — that's why it's so easy to quit. Focus Labs turns deep work into cinematic timelapses. Get early access." />
+  <meta property="og:title" content="Focus Labs — Watch yourself become unstoppable" />
+  <meta property="og:description" content="Your effort is invisible — that's why it's so easy to quit. There's a better way. Get early access." />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300;400;500;600;700&family=Inter:wght@300;400;500;600&display=swap" rel="stylesheet" />
@@ -36,19 +36,17 @@
   <!-- ============ Navigation ============ -->
   <header class="nav" id="nav">
     <div class="nav__inner">
-      <a href="#top" class="nav__logo" data-magnetic>
+      <a href="#top" class="nav__logo" data-magnetic aria-label="Home">
         <svg viewBox="0 0 32 32" width="28" height="28"><circle cx="16" cy="16" r="13" fill="none" stroke="currentColor" stroke-width="2"/><path d="M16 8v8l6 4" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
-        <span>Focus<em>Labs</em></span>
       </a>
       <nav class="nav__links" id="navLinks" aria-label="Primary">
-        <a href="#how">How it works</a>
+        <a href="#problem">The problem</a>
+        <a href="#imagine">Imagine</a>
+        <a href="#reveal">The reveal</a>
         <a href="#features">Features</a>
-        <a href="#stories">Stories</a>
-        <a href="#pricing">Pricing</a>
       </nav>
       <div class="nav__actions">
-        <a href="#pricing" class="btn btn--ghost btn--sm" data-magnetic>Sign in</a>
-        <a href="#cta" class="btn btn--silver btn--sm" data-magnetic>Get the app</a>
+        <a href="#cta" class="btn btn--silver btn--sm" data-magnetic>Get early access</a>
       </div>
       <button class="nav__burger" id="navBurger" aria-label="Open menu" aria-expanded="false">
         <span></span><span></span>
@@ -58,41 +56,37 @@
 
   <main id="top">
 
-    <!-- ============ Hero ============ -->
+    <!-- ============ Act I · Hero — the problem ============ -->
     <section class="hero" id="hero">
       <canvas class="hero__canvas" id="heroCanvas" aria-hidden="true"></canvas>
       <div class="hero__vignette" aria-hidden="true"></div>
 
       <div class="hero__content">
         <p class="hero__eyebrow" data-reveal>
-          <span class="pulse-dot"></span> Now on iOS, Android &amp; macOS
+          <span class="pulse-dot"></span> An honest question
         </p>
         <h1 class="hero__title">
-          <span class="line" data-reveal>Watch yourself</span>
-          <span class="line line--silver" data-reveal data-reveal-delay="120">become unstoppable.</span>
+          <span class="line" data-reveal>Eight hours at your desk.</span>
+          <span class="line line--silver" data-reveal data-reveal-delay="120">What do you have to show?</span>
         </h1>
         <p class="hero__sub" data-reveal data-reveal-delay="240">
-          Focus Labs records your deep work as cinematic timelapses —
-          hours of effort, replayed in seconds. Seeing your progress is
-          the most powerful motivation there is.
+          You sat down to do the work. Then came the pings, the tabs,
+          the tiny escapes. The day ended — and your effort vanished
+          without a trace. Not even you saw it happen.
         </p>
         <div class="hero__actions" data-reveal data-reveal-delay="360">
-          <a href="#cta" class="btn btn--silver btn--lg" data-magnetic>
-            Start focusing free
-            <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M3 8h10M9 4l4 4-4 4" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          <a href="#problem" class="btn btn--silver btn--lg" data-magnetic>
+            Why this keeps happening
+            <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M8 3v10M4 9l4 4 4-4" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
           </a>
-          <a href="#how" class="btn btn--ghost btn--lg" data-magnetic>
-            <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M4 2.5l8 4.5-8 4.5v-9z" fill="currentColor"/></svg>
-            Watch a timelapse
-          </a>
+          <a href="#cta" class="btn btn--ghost btn--lg" data-magnetic>Skip to early access</a>
         </div>
         <div class="hero__meta" data-reveal data-reveal-delay="480">
-          <div class="hero__stars" aria-label="Rated 4.9 out of 5">★★★★★</div>
-          <span>4.9 on the App Store · 2.4M sessions captured</span>
+          <span>For makers, writers, students and founders who do real work — or want to.</span>
         </div>
       </div>
 
-      <a href="#how" class="hero__scroll" aria-label="Scroll down">
+      <a href="#problem" class="hero__scroll" aria-label="Scroll down">
         <span class="hero__scroll-line"></span>
         <span class="hero__scroll-text">Scroll</span>
       </a>
@@ -101,49 +95,100 @@
     <!-- ============ Marquee ============ -->
     <div class="marquee" aria-hidden="true">
       <div class="marquee__track">
-        <span>Deep Work</span><i>✦</i><span>Timelapse</span><i>✦</i><span>Flow State</span><i>✦</i><span>Momentum</span><i>✦</i><span>Discipline</span><i>✦</i><span>Progress</span><i>✦</i>
-        <span>Deep Work</span><i>✦</i><span>Timelapse</span><i>✦</i><span>Flow State</span><i>✦</i><span>Momentum</span><i>✦</i><span>Discipline</span><i>✦</i><span>Progress</span><i>✦</i>
+        <span>One more ping</span><i>✦</i><span>One more tab</span><i>✦</i><span>One quick check</span><i>✦</i><span>Where did the day go</span><i>✦</i><span>Tomorrow for sure</span><i>✦</i>
+        <span>One more ping</span><i>✦</i><span>One more tab</span><i>✦</i><span>One quick check</span><i>✦</i><span>Where did the day go</span><i>✦</i><span>Tomorrow for sure</span><i>✦</i>
       </div>
     </div>
 
-    <!-- ============ How it works ============ -->
-    <section class="section how" id="how">
+    <!-- ============ Act I · The problem ============ -->
+    <section class="section problem" id="problem">
       <div class="container">
         <div class="section__head">
-          <p class="section__eyebrow" data-reveal>How it works</p>
+          <p class="section__eyebrow" data-reveal>The problem</p>
           <h2 class="section__title" data-reveal>
-            Three steps to a<br /><span class="text-silver">different kind of focus.</span>
+            Effort you can't see<br /><span class="text-silver">is effort you can't sustain.</span>
           </h2>
         </div>
 
-        <div class="how__grid">
-          <article class="how__step glass" data-reveal data-tilt>
-            <span class="how__num">01</span>
-            <div class="how__icon">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="3.5" fill="currentColor" stroke="none"/></svg>
+        <div class="cards3">
+          <article class="pcard glass" data-reveal data-tilt>
+            <span class="pcard__num">01</span>
+            <div class="pcard__icon">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3l18 18"/><path d="M10.6 5.1A9.8 9.8 0 0121 12s-1.2 2.2-3.4 4M6.4 6.4C3.9 8.1 3 12 3 12a9.9 9.9 0 0011.5 5.6"/><circle cx="12" cy="12" r="3"/></svg>
             </div>
-            <h3>Press record</h3>
-            <p>Set your intention, pick a session length, and hit record. Focus Labs quietly captures your screen, desk cam, or both.</p>
+            <h3>The work is invisible</h3>
+            <p>Four hours of deep effort and a day of doomscrolling look exactly the same: you, sitting at a desk. With no proof of progress, motivation starves.</p>
           </article>
 
-          <article class="how__step glass" data-reveal data-reveal-delay="120" data-tilt>
-            <span class="how__num">02</span>
-            <div class="how__icon">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M12 3a9 9 0 109 9"/><path d="M12 7v5l3.5 2"/></svg>
+          <article class="pcard glass" data-reveal data-reveal-delay="120" data-tilt>
+            <span class="pcard__num">02</span>
+            <div class="pcard__icon">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5" width="18" height="14" rx="2.5"/><path d="M7 9h6M7 13h10"/><circle cx="18.5" cy="5.5" r="3" fill="currentColor" stroke="none"/></svg>
             </div>
-            <h3>Enter deep work</h3>
-            <p>Distraction shields, ambient soundscapes and a gentle focus timer keep you locked in. No interruptions, no noise.</p>
+            <h3>Escape is one tab away</h3>
+            <p>Every distraction is engineered to win. After each "quick check" it takes about 23 minutes to truly refocus — and nobody is watching when you drift.</p>
           </article>
 
-          <article class="how__step glass" data-reveal data-reveal-delay="240" data-tilt>
-            <span class="how__num">03</span>
-            <div class="how__icon">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5" width="18" height="14" rx="2.5"/><path d="M10 9.5l5 2.5-5 2.5v-5z" fill="currentColor" stroke="none"/></svg>
+          <article class="pcard glass" data-reveal data-reveal-delay="240" data-tilt>
+            <span class="pcard__num">03</span>
+            <div class="pcard__icon">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M3 17l5-5 4 4 8-9"/><path d="M21 17H3" opacity="0.4"/></svg>
             </div>
-            <h3>Watch the replay</h3>
-            <p>Four hours become forty seconds. Watch the work happen, feel the momentum, and never want to break the streak.</p>
+            <h3>Streaks die in silence</h3>
+            <p>Your momentum lives only in your head. So when it breaks, nothing marks the loss — and starting over feels like starting from zero. Again.</p>
           </article>
         </div>
+
+        <p class="problem__punch" data-reveal>
+          It's not a discipline problem. <span class="text-silver">It's a visibility problem.</span>
+        </p>
+      </div>
+    </section>
+
+    <!-- ============ Act II · Imagine ============ -->
+    <section class="imagine" id="imagine">
+      <div class="imagine__glow" aria-hidden="true"></div>
+      <div class="container">
+        <p class="section__eyebrow section__eyebrow--center" data-reveal>Now close your eyes</p>
+
+        <div class="imagine__lines">
+          <p class="imagine__line" data-reveal>Imagine your whole workday,<br /><span class="text-silver">replayed in forty seconds.</span></p>
+          <p class="imagine__line" data-reveal>Imagine momentum you can <span class="text-silver">watch</span> —<br />not just feel slipping away.</p>
+          <p class="imagine__line" data-reveal>Imagine it being hard to quit,<br /><span class="text-silver">because you'd see yourself do it.</span></p>
+        </div>
+
+        <p class="imagine__outro" data-reveal>
+          A world where every hour of focus leaves something behind.
+          Proof. Footage. A highlight reel of your own discipline,
+          growing a little longer every single day.
+        </p>
+
+        <a href="#reveal" class="btn btn--ghost btn--lg imagine__cta" data-reveal data-magnetic>
+          It exists
+          <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M8 3v10M4 9l4 4 4-4" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        </a>
+      </div>
+    </section>
+
+    <!-- ============ Act III · The reveal ============ -->
+    <section class="reveal" id="reveal">
+      <div class="reveal__glow" aria-hidden="true"></div>
+      <div class="container">
+        <p class="section__eyebrow section__eyebrow--center" data-reveal>Introducing</p>
+
+        <div class="reveal__mark" data-reveal data-reveal-zoom>
+          <svg viewBox="0 0 32 32" width="64" height="64"><circle cx="16" cy="16" r="13" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M16 8v8l6 4" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
+        </div>
+
+        <h2 class="reveal__name" data-reveal data-reveal-zoom data-reveal-delay="120">
+          <span class="text-silver">Focus Labs</span>
+        </h2>
+
+        <p class="reveal__tagline" data-reveal data-reveal-delay="280">
+          The app that records your deep work as cinematic timelapses —
+          hours of effort, replayed in seconds. Seeing your progress is
+          the most powerful motivation there is.
+        </p>
       </div>
     </section>
 
@@ -155,10 +200,10 @@
             <p class="section__eyebrow" data-reveal>The replay</p>
             <h2 class="section__title" data-reveal>Your effort,<br /><span class="text-silver">made visible.</span></h2>
             <p class="showcase__text" data-reveal>
-              Most focus apps show you a number. Focus Labs shows you the
-              <em>footage</em> — every line written, every sketch refined,
-              every problem solved, compressed into a highlight reel of
-              your own discipline.
+              Press record, do the work, watch the replay. Focus Labs
+              shows you the <em>footage</em> — every line written, every
+              sketch refined, every problem solved, compressed into a
+              highlight reel of your own discipline.
             </p>
             <ul class="showcase__list">
               <li data-reveal><span class="tick">✓</span> 240× smart speed-ramping keeps replays watchable</li>
@@ -243,9 +288,10 @@
     <!-- ============ Stats ============ -->
     <section class="section stats">
       <div class="container">
+        <p class="stats__intro" data-reveal>From the private beta</p>
         <div class="stats__grid">
           <div class="stat" data-reveal>
-            <span class="stat__value"><span data-counter="2400000" data-counter-format="compact">0</span></span>
+            <span class="stat__value"><span data-counter="240000" data-counter-format="compact">0</span></span>
             <span class="stat__label">sessions captured</span>
           </div>
           <div class="stat" data-reveal data-reveal-delay="100">
@@ -253,12 +299,12 @@
             <span class="stat__label">report deeper focus in 2 weeks</span>
           </div>
           <div class="stat" data-reveal data-reveal-delay="200">
-            <span class="stat__value"><span data-counter="190000" data-counter-format="compact">0</span>h</span>
+            <span class="stat__value"><span data-counter="19000" data-counter-format="compact">0</span>h</span>
             <span class="stat__label">of deep work replayed</span>
           </div>
           <div class="stat" data-reveal data-reveal-delay="300">
-            <span class="stat__value"><span data-counter="49" data-counter-decimal="1">0</span></span>
-            <span class="stat__label">average store rating</span>
+            <span class="stat__value"><span data-counter="12400" data-counter-format="compact">0</span></span>
+            <span class="stat__label">already on the waitlist</span>
           </div>
         </div>
       </div>
@@ -268,7 +314,7 @@
     <section class="section stories" id="stories">
       <div class="container">
         <div class="section__head">
-          <p class="section__eyebrow" data-reveal>Stories</p>
+          <p class="section__eyebrow" data-reveal>From the beta</p>
           <h2 class="section__title" data-reveal>People don't quit<br /><span class="text-silver">what they can see.</span></h2>
         </div>
 
@@ -277,98 +323,53 @@
             <blockquote>“I rewatched a 6-hour thesis session in 50 seconds and almost cried. It's the first time I've ever <em>seen</em> my own effort.”</blockquote>
             <figcaption>
               <span class="story__avatar">MK</span>
-              <span><strong>Maya K.</strong><br />PhD candidate, Berlin</span>
+              <span><strong>Maya K.</strong><br />Beta tester · PhD candidate, Berlin</span>
             </figcaption>
           </figure>
           <figure class="story glass" data-reveal data-reveal-delay="120" data-tilt>
             <blockquote>“My streak is 71 days. I don't open Twitter when the red dot is on — it would be on camera. That's the whole trick, and it works.”</blockquote>
             <figcaption>
               <span class="story__avatar">DR</span>
-              <span><strong>Dev R.</strong><br />Indie developer, Bangalore</span>
+              <span><strong>Dev R.</strong><br />Beta tester · Indie developer, Bangalore</span>
             </figcaption>
           </figure>
           <figure class="story glass" data-reveal data-reveal-delay="240" data-tilt>
             <blockquote>“Our whole studio starts the day in a Focus Labs room. Friday we watch the week's timelapses together. Best ritual we've ever had.”</blockquote>
             <figcaption>
               <span class="story__avatar">SL</span>
-              <span><strong>Sofia L.</strong><br />Design lead, Lisbon</span>
+              <span><strong>Sofia L.</strong><br />Beta tester · Design lead, Lisbon</span>
             </figcaption>
           </figure>
         </div>
       </div>
     </section>
 
-    <!-- ============ Pricing ============ -->
-    <section class="section pricing" id="pricing">
-      <div class="container">
-        <div class="section__head">
-          <p class="section__eyebrow" data-reveal>Pricing</p>
-          <h2 class="section__title" data-reveal>Simple plans,<br /><span class="text-silver">serious focus.</span></h2>
-        </div>
-
-        <div class="pricing__grid">
-          <article class="plan glass" data-reveal>
-            <h3>Starter</h3>
-            <p class="plan__price"><span>$0</span>/forever</p>
-            <p class="plan__desc">For trying the habit on.</p>
-            <ul>
-              <li>3 timelapses per week</li>
-              <li>Focus timer &amp; soundscapes</li>
-              <li>7-day session history</li>
-            </ul>
-            <a href="#cta" class="btn btn--ghost btn--block" data-magnetic>Start free</a>
-          </article>
-
-          <article class="plan plan--featured glass" data-reveal data-reveal-delay="120">
-            <span class="plan__badge">Most popular</span>
-            <h3>Pro</h3>
-            <p class="plan__price"><span>$6</span>/month</p>
-            <p class="plan__desc">For people building momentum.</p>
-            <ul>
-              <li>Unlimited timelapses, 4K export</li>
-              <li>Session insights &amp; golden hours</li>
-              <li>Full library, forever</li>
-              <li>Streak protection</li>
-            </ul>
-            <a href="#cta" class="btn btn--silver btn--block" data-magnetic>Go Pro</a>
-          </article>
-
-          <article class="plan glass" data-reveal data-reveal-delay="240">
-            <h3>Teams</h3>
-            <p class="plan__price"><span>$12</span>/seat</p>
-            <p class="plan__desc">For studios and squads.</p>
-            <ul>
-              <li>Everything in Pro</li>
-              <li>Shared focus rooms</li>
-              <li>Weekly team reels</li>
-              <li>Admin &amp; SSO</li>
-            </ul>
-            <a href="#cta" class="btn btn--ghost btn--block" data-magnetic>Talk to us</a>
-          </article>
-        </div>
-      </div>
-    </section>
-
-    <!-- ============ CTA ============ -->
+    <!-- ============ CTA · Early access ============ -->
     <section class="cta" id="cta">
       <div class="cta__glow" aria-hidden="true"></div>
       <div class="container">
+        <p class="section__eyebrow section__eyebrow--center" data-reveal>Early access</p>
         <h2 class="cta__title">
-          <span data-reveal>Your future self</span><br />
-          <span class="text-silver" data-reveal data-reveal-delay="120">is watching.</span>
+          <span data-reveal>Be first to watch yourself</span><br />
+          <span class="text-silver" data-reveal data-reveal-delay="120">become unstoppable.</span>
         </h2>
-        <p class="cta__sub" data-reveal data-reveal-delay="240">Start your first session in under a minute. Free, private, and quietly addictive.</p>
-        <div class="cta__actions" data-reveal data-reveal-delay="360">
-          <a href="#" class="store-btn glass" data-magnetic>
-            <svg viewBox="0 0 24 24" width="22" height="22" fill="currentColor"><path d="M17.05 12.54c-.03-2.89 2.36-4.27 2.47-4.34-1.35-1.97-3.44-2.24-4.18-2.27-1.78-.18-3.47 1.05-4.37 1.05-.9 0-2.29-1.02-3.77-.99-1.94.03-3.73 1.13-4.73 2.86-2.02 3.5-.52 8.68 1.45 11.52.96 1.39 2.1 2.95 3.6 2.89 1.45-.06 1.99-.93 3.74-.93s2.24.93 3.77.9c1.56-.03 2.54-1.41 3.49-2.81 1.1-1.61 1.55-3.17 1.58-3.25-.04-.02-3.02-1.16-3.05-4.63zM14.16 4.06c.8-.97 1.34-2.31 1.19-3.66-1.15.05-2.55.77-3.38 1.74-.74.85-1.39 2.22-1.22 3.53 1.29.1 2.6-.65 3.41-1.61z"/></svg>
-            <span><small>Download on the</small>App Store</span>
-          </a>
-          <a href="#" class="store-btn glass" data-magnetic>
-            <svg viewBox="0 0 24 24" width="22" height="22" fill="currentColor"><path d="M3.61 1.81C3.23 2.2 3 2.82 3 3.61v16.78c0 .79.23 1.41.61 1.8l.1.09 9.4-9.4v-.21L3.7 1.72l-.09.09zm13.8 7.13l-3.13 3.13v.21l3.13 3.14 3.55-2.02c1.01-.57 1.01-1.51 0-2.09l-3.55-2.37zm-.71 6.27l-3.25-3.25-9.4 9.4c.34.36.89.4 1.52.05l11.13-6.2zM3.05 1.04l9.4 9.4 3.25-3.25L4.57.99C3.94.64 3.39.68 3.05 1.04z"/></svg>
-            <span><small>Get it on</small>Google Play</span>
-          </a>
-        </div>
-        <p class="cta__note" data-reveal data-reveal-delay="480">No credit card. No tracking. Just focus.</p>
+        <p class="cta__sub" data-reveal data-reveal-delay="240">
+          Early access opens in waves. Join the waitlist and we'll send
+          your invite — plus your first session is on us, forever.
+        </p>
+
+        <form class="access-form glass" id="accessForm" data-reveal data-reveal-delay="360" novalidate>
+          <input type="email" id="accessEmail" name="email" placeholder="you@example.com" autocomplete="email" required aria-label="Email address" />
+          <button type="submit" class="btn btn--silver" data-magnetic>
+            Get early access
+            <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M3 8h10M9 4l4 4-4 4" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          </button>
+        </form>
+        <p class="access-form__success" id="accessSuccess" hidden>
+          ✓ You're on the list. Watch your inbox — invites go out every Friday.
+        </p>
+
+        <p class="cta__note" data-reveal data-reveal-delay="480">No spam. No credit card. Just an invite when it's your turn.</p>
       </div>
     </section>
 
@@ -383,11 +384,11 @@
           <span>Focus<em>Labs</em></span>
         </a>
         <nav class="footer__links" aria-label="Footer">
-          <a href="#how">How it works</a>
+          <a href="#problem">The problem</a>
+          <a href="#reveal">The reveal</a>
           <a href="#features">Features</a>
-          <a href="#pricing">Pricing</a>
+          <a href="#cta">Early access</a>
           <a href="#">Privacy</a>
-          <a href="#">Terms</a>
         </nav>
       </div>
       <div class="footer__bottom">

@@ -3,6 +3,12 @@
 A premium single-page marketing site for **Focus Labs**, the app that turns
 deep work sessions into cinematic timelapses.
 
+The page follows a three-act narrative: **Act I** names the problem (your
+effort is invisible, so it's easy to quit), **Act II** paints the ideal
+future without naming the product ("imagine your whole workday, replayed in
+forty seconds"), and **Act III** reveals Focus Labs with a waitlist form for
+early access.
+
 ## Design
 
 - **Palette** — silver chrome gradients on near-black (`#07080a`), with glass
