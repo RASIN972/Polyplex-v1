@@ -9,11 +9,21 @@
   <meta property="og:description" content="Your effort is invisible — that's why it's so easy to quit. There's a better way. Get early access." />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300;400;500;600;700&family=Inter:wght@300;400;500;600&display=swap" rel="stylesheet" />
+  <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300;400;500;600;700&family=Inter:wght@300;400;500;600&family=Instrument+Serif:ital@0;1&display=swap" rel="stylesheet" />
   <link rel="stylesheet" href="css/style.css" />
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><circle cx='16' cy='16' r='13' fill='none' stroke='%23c8ccd4' stroke-width='2.5'/><path d='M16 8v8l6 4' fill='none' stroke='%23eef0f4' stroke-width='2.5' stroke-linecap='round'/></svg>" />
+  <noscript>
+    <style>
+      .preloader { display: none; }
+      [data-reveal] { opacity: 1; transform: none; }
+      .imagine__line { opacity: 1; transform: none; filter: none; }
+    </style>
+  </noscript>
 </head>
 <body>
+
+  <!-- ============ Scroll progress ============ -->
+  <div class="scroll-progress" id="scrollProgress" aria-hidden="true"></div>
 
   <!-- ============ Preloader ============ -->
   <div class="preloader" id="preloader" aria-hidden="true">
@@ -37,11 +47,12 @@
   <header class="nav" id="nav">
     <div class="nav__inner">
       <a href="#top" class="nav__logo" data-magnetic aria-label="Home">
-        <svg viewBox="0 0 32 32" width="28" height="28"><circle cx="16" cy="16" r="13" fill="none" stroke="currentColor" stroke-width="2"/><path d="M16 8v8l6 4" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+        <svg viewBox="0 0 32 32" width="26" height="26"><circle cx="16" cy="16" r="13" fill="none" stroke="currentColor" stroke-width="2"/><path d="M16 8v8l6 4" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+        <span>Focus<em>Labs</em></span>
       </a>
       <nav class="nav__links" id="navLinks" aria-label="Primary">
         <a href="#problem">The problem</a>
-        <a href="#imagine">Imagine</a>
+        <a href="#imagine">The dream</a>
         <a href="#reveal">The reveal</a>
         <a href="#features">Features</a>
       </nav>
@@ -65,23 +76,23 @@
         <p class="hero__eyebrow" data-reveal>
           <span class="pulse-dot"></span> An honest question
         </p>
-        <h1 class="hero__title">
-          <span class="line" data-reveal>Eight hours at your desk.</span>
-          <span class="line line--silver" data-reveal data-reveal-delay="120">What do you have to show?</span>
+        <h1 class="hero__title" data-split>
+          <span class="line">Eight hours at your desk.</span>
+          <span class="line line--silver">What do you have to <em class="accent">show?</em></span>
         </h1>
-        <p class="hero__sub" data-reveal data-reveal-delay="240">
+        <p class="hero__sub" data-reveal data-reveal-delay="500">
           You sat down to do the work. Then came the pings, the tabs,
           the tiny escapes. The day ended — and your effort vanished
-          without a trace. Not even you saw it happen.
+          without a trace. <em class="accent accent--dim">Not even you saw it happen.</em>
         </p>
-        <div class="hero__actions" data-reveal data-reveal-delay="360">
+        <div class="hero__actions" data-reveal data-reveal-delay="650">
           <a href="#problem" class="btn btn--silver btn--lg" data-magnetic>
             Why this keeps happening
             <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M8 3v10M4 9l4 4 4-4" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
           </a>
           <a href="#cta" class="btn btn--ghost btn--lg" data-magnetic>Skip to early access</a>
         </div>
-        <div class="hero__meta" data-reveal data-reveal-delay="480">
+        <div class="hero__meta" data-reveal data-reveal-delay="800">
           <span>For makers, writers, students and founders who do real work — or want to.</span>
         </div>
       </div>
@@ -104,9 +115,10 @@
     <section class="section problem" id="problem">
       <div class="container">
         <div class="section__head">
-          <p class="section__eyebrow" data-reveal>The problem</p>
-          <h2 class="section__title" data-reveal>
-            Effort you can't see<br /><span class="text-silver">is effort you can't sustain.</span>
+          <p class="section__eyebrow" data-reveal>Act I · The problem</p>
+          <h2 class="section__title" data-split>
+            <span class="line">Effort you can't see</span>
+            <span class="line text-silver">is effort you can't <em class="accent">sustain.</em></span>
           </h2>
         </div>
 
@@ -140,21 +152,22 @@
         </div>
 
         <p class="problem__punch" data-reveal>
-          It's not a discipline problem. <span class="text-silver">It's a visibility problem.</span>
+          It's not a discipline problem.<br />
+          <span class="text-silver">It's a <em class="accent">visibility</em> problem.</span>
         </p>
       </div>
     </section>
 
     <!-- ============ Act II · Imagine ============ -->
     <section class="imagine" id="imagine">
-      <div class="imagine__glow" aria-hidden="true"></div>
+      <div class="imagine__glow" data-parallax="0.12" aria-hidden="true"></div>
       <div class="container">
-        <p class="section__eyebrow section__eyebrow--center" data-reveal>Now close your eyes</p>
+        <p class="section__eyebrow section__eyebrow--center" data-reveal>Act II · Now close your eyes</p>
 
         <div class="imagine__lines">
-          <p class="imagine__line" data-reveal>Imagine your whole workday,<br /><span class="text-silver">replayed in forty seconds.</span></p>
-          <p class="imagine__line" data-reveal>Imagine momentum you can <span class="text-silver">watch</span> —<br />not just feel slipping away.</p>
-          <p class="imagine__line" data-reveal>Imagine it being hard to quit,<br /><span class="text-silver">because you'd see yourself do it.</span></p>
+          <p class="imagine__line">Imagine your whole workday,<br /><span class="text-silver">replayed in <em class="accent">forty seconds.</em></span></p>
+          <p class="imagine__line">Imagine momentum you can <em class="accent">watch</em> —<br />not just feel slipping away.</p>
+          <p class="imagine__line">Imagine it being hard to quit,<br /><span class="text-silver">because you'd <em class="accent">see yourself</em> do it.</span></p>
         </div>
 
         <p class="imagine__outro" data-reveal>
@@ -174,7 +187,7 @@
     <section class="reveal" id="reveal">
       <div class="reveal__glow" aria-hidden="true"></div>
       <div class="container">
-        <p class="section__eyebrow section__eyebrow--center" data-reveal>Introducing</p>
+        <p class="section__eyebrow section__eyebrow--center" data-reveal>Act III · Introducing</p>
 
         <div class="reveal__mark" data-reveal data-reveal-zoom>
           <svg viewBox="0 0 32 32" width="64" height="64"><circle cx="16" cy="16" r="13" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M16 8v8l6 4" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
@@ -185,7 +198,7 @@
         </h2>
 
         <p class="reveal__tagline" data-reveal data-reveal-delay="280">
-          The app that records your deep work as cinematic timelapses —
+          The app that records your deep work as <em class="accent">cinematic timelapses</em> —
           hours of effort, replayed in seconds. Seeing your progress is
           the most powerful motivation there is.
         </p>
@@ -198,7 +211,10 @@
         <div class="showcase__layout">
           <div class="showcase__copy">
             <p class="section__eyebrow" data-reveal>The replay</p>
-            <h2 class="section__title" data-reveal>Your effort,<br /><span class="text-silver">made visible.</span></h2>
+            <h2 class="section__title" data-split>
+              <span class="line">Your effort,</span>
+              <span class="line text-silver">made <em class="accent">visible.</em></span>
+            </h2>
             <p class="showcase__text" data-reveal>
               Press record, do the work, watch the replay. Focus Labs
               shows you the <em>footage</em> — every line written, every
@@ -212,7 +228,7 @@
             </ul>
           </div>
 
-          <div class="showcase__device" data-reveal data-reveal-delay="150">
+          <div class="showcase__device" data-parallax="0.06">
             <div class="device glass" data-tilt data-tilt-max="6">
               <div class="device__bar">
                 <span class="device__dot"></span><span class="device__dot"></span><span class="device__dot"></span>
@@ -247,7 +263,10 @@
       <div class="container">
         <div class="section__head">
           <p class="section__eyebrow" data-reveal>Built for focus</p>
-          <h2 class="section__title" data-reveal>Everything you need.<br /><span class="text-silver">Nothing that distracts.</span></h2>
+          <h2 class="section__title" data-split>
+            <span class="line">Everything you need.</span>
+            <span class="line text-silver">Nothing that distracts.</span>
+          </h2>
         </div>
 
         <div class="features__grid">
@@ -315,7 +334,10 @@
       <div class="container">
         <div class="section__head">
           <p class="section__eyebrow" data-reveal>From the beta</p>
-          <h2 class="section__title" data-reveal>People don't quit<br /><span class="text-silver">what they can see.</span></h2>
+          <h2 class="section__title" data-split>
+            <span class="line">People don't quit</span>
+            <span class="line text-silver">what they can <em class="accent">see.</em></span>
+          </h2>
         </div>
 
         <div class="stories__grid">
@@ -346,12 +368,12 @@
 
     <!-- ============ CTA · Early access ============ -->
     <section class="cta" id="cta">
-      <div class="cta__glow" aria-hidden="true"></div>
+      <div class="cta__glow" data-parallax="0.08" aria-hidden="true"></div>
       <div class="container">
         <p class="section__eyebrow section__eyebrow--center" data-reveal>Early access</p>
-        <h2 class="cta__title">
-          <span data-reveal>Be first to watch yourself</span><br />
-          <span class="text-silver" data-reveal data-reveal-delay="120">become unstoppable.</span>
+        <h2 class="cta__title" data-split>
+          <span class="line">Be first to watch yourself</span>
+          <span class="line text-silver">become <em class="accent">unstoppable.</em></span>
         </h2>
         <p class="cta__sub" data-reveal data-reveal-delay="240">
           Early access opens in waves. Join the waitlist and we'll send
