@@ -23,6 +23,11 @@ checkpoints/
 !/polytrackcopy/dist/
 !/polytrackcopy/dist/**
 
+# Built React training dashboard (Python-only machines can run without Node)
+!/dashboard/dist/
+!/dashboard/dist/**
+dashboard/node_modules/
+
 # OS / editor
 .DS_Store
 Thumbs.db
