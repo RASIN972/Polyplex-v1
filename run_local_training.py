@@ -38,14 +38,14 @@ def main() -> int:
 
     print(
         "\n"
-        " ╔══════════════════════════════════════════════════════════════╗\n"
-        f" ║  Polyplex — local PPO training ({num_envs} parallel envs)              ║\n"
-        f" ║  • HTTP servers: 127.0.0.1:{_BASE_PORT}–{port_hi}                      ║\n"
-        " ║  • PPO device: CPU (AMD GPU not used for this tiny MLP)     ║\n"
-        " ║  • Ctrl+C stops training — servers may keep running         ║\n"
-        " ║  • First reset may take 1–3 min (track menu) on Windows     ║\n"
-        " ║  • Docs: CONTEXT.md, docs/WINDOWS_TRAINING.md               ║\n"
-        " ╚══════════════════════════════════════════════════════════════╝\n",
+        "==============================================================\n"
+        f"  Polyplex — local PPO training ({num_envs} parallel envs)\n"
+        f"  HTTP servers: 127.0.0.1:{_BASE_PORT}-{port_hi}\n"
+        "  PPO device: CPU (AMD GPU not used for this tiny MLP)\n"
+        "  Ctrl+C stops training — servers may keep running\n"
+        "  First reset may take 1-3 min (track menu) on Windows\n"
+        "  Docs: CONTEXT.md, docs/WINDOWS_TRAINING.md\n"
+        "==============================================================\n",
         flush=True,
     )
 

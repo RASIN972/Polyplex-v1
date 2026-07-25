@@ -11,7 +11,8 @@ from stable_baselines3.common.callbacks import BaseCallback
 
 _LIVE_JSON_PATH = Path(os.environ.get("POLYTRACK_LIVE_JSON", "logs/training_live.json"))
 
-_SPARK = "▁▂▃▄▅▆▇█"
+# ASCII-safe spark (Windows cp1252 consoles choke on block glyphs).
+_SPARK = ".:-=+*#%@"
 _BAR_W = 15
 
 
@@ -248,7 +249,7 @@ class TrainingMonitor(BaseCallback):
                 f"mean: {float(np.mean(fit_vals)):.1f}m   "
                 f"all-time: {self._best_fitness:.1f}m"
             )
-            print(f"  trend: {_sparkline(fit_vals)}   ← spark line")
+            print(f"  trend: {_sparkline(fit_vals)}   <- spark line")
             print("  (higher = farther along the track)")
         else:
             print("  FITNESS — horizontal distance metres (last 10 episodes)")
@@ -267,11 +268,11 @@ class TrainingMonitor(BaseCallback):
                 f"  best:  {best:+.2f}   worst: {worst:+.2f}   "
                 f"mean: {mean_r:+.2f}   all-time: {all_r:+.2f}"
             )
-            print(f"  trend: {spark}   ← spark line")
+            print(f"  trend: {spark}   <- spark line")
         else:
             print("  REWARD (last 10 episodes)")
             print("  (no episodes yet)")
-            print("  trend:   ← spark line")
+            print("  trend:   <- spark line")
         print()
 
         lengths = [e[1] for e in self._episodes]

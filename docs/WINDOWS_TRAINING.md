@@ -40,7 +40,7 @@
 ### First-run expectations
 
 - Monitor may sit at **0 steps** for **1–3 minutes** while each worker opens the track picker (`.track` HTTP loads).
-- A Tkinter **GUI monitor** opens automatically (use `--no-gui` to suppress).
+- Prefer the control GUI: `python start_gui.py` (start/stop training from there).
 - **Ctrl+C** may print `KeyboardInterrupt`, `TargetClosedError`, `BrokenPipeError` — normal SubprocVecEnv shutdown noise. Check `logs/last_training_error.txt` for real failures.
 - HTTP servers are **separate processes** and may keep running after training stops.
 
@@ -69,7 +69,7 @@ set POLYTRACK_HEADLESS_USE_SWIFTSHADER=1
 |------|----------------|
 | **4 envs (default)** | `python run_local_training.py` |
 | **Watch worker 0** | `python run_local_training.py --watch` |
-| **No GUI monitor** | `python run_local_training.py --no-gui` |
+| **Control GUI** | `python start_gui.py` then Start training |
 | **Single-process debug** | `python run_local_training.py --num-envs 1 --vec-env dummy` |
 | **Skip auto HTTP servers** | `set POLYTRACK_SKIP_SERVER_LAUNCH=1` then `python training\train_ppo.py` |
 | **Worker stagger** | `POLYTRACK_WORKER_STAGGER_S` (default **2.5**) |

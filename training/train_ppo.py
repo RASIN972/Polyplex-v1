@@ -6,7 +6,6 @@ import os
 import socket
 import subprocess
 import sys
-import time
 import traceback
 from datetime import datetime
 from pathlib import Path
@@ -30,55 +29,6 @@ CHECKPOINT_FREQ = 50_000
 N_STEPS_PER_ENV = 512
 NUM_ENVS_DEFAULT = 4
 BASE_PORT_DEFAULT = 8080
-
-
-def _launch_gui_monitor() -> subprocess.Popen | None:
-    """Spawn gui_monitor.py in a separate process. Returns the Popen or None on failure."""
-    gui_script = _ROOT / "gui_monitor.py"
-    if not gui_script.exists():
-        return None
-    # On macOS/Linux, check whether a display is available before trying Tkinter.
-    if sys.platform != "win32" and not os.environ.get("DISPLAY") and sys.platform != "darwin":
-        print("[gui_monitor] No DISPLAY — skipping GUI monitor (headless server).", flush=True)
-        return None
-    log_path = _ROOT / "logs" / "gui_monitor.log"
-    try:
-        log_path.parent.mkdir(parents=True, exist_ok=True)
-        log_f = open(log_path, "w", encoding="utf-8")
-        proc = subprocess.Popen(
-            [sys.executable, "-u", str(gui_script)],
-            stdout=log_f,
-            stderr=subprocess.STDOUT,
-            close_fds=True,
-        )
-        # Brief settle — if Tk crashes immediately, surface it.
-        time.sleep(0.4)
-        if proc.poll() is not None:
-            try:
-                log_f.flush()
-                log_f.close()
-            except OSError:
-                pass
-            detail = ""
-            try:
-                detail = log_path.read_text(encoding="utf-8", errors="replace")[-500:]
-            except OSError:
-                pass
-            print(
-                f"[gui_monitor] Exited immediately (code {proc.returncode}). "
-                f"See logs/gui_monitor.log\n{detail}",
-                flush=True,
-            )
-            return None
-        print(
-            f"[gui_monitor] Launched (pid {proc.pid}). Close the window any time. "
-            f"(log: logs/gui_monitor.log)",
-            flush=True,
-        )
-        return proc
-    except Exception as exc:
-        print(f"[gui_monitor] Could not launch GUI monitor: {exc}", flush=True)
-        return None
 
 
 def _require_game_servers(host: str, ports: list[int]) -> None:
@@ -160,7 +110,7 @@ def main() -> None:
     parser.add_argument(
         "--no-gui",
         action="store_true",
-        help="Suppress the auto-launched Tkinter GUI monitor window.",
+        help="Deprecated no-op (GUI is started via: python start_gui.py).",
     )
     parser.add_argument(
         "--total-timesteps",
@@ -215,14 +165,10 @@ def main() -> None:
 
     rollout_size = N_STEPS_PER_ENV * num_envs
     print(
-        f"PPO: {num_envs} envs × {N_STEPS_PER_ENV} steps/env = {rollout_size} transitions per rollout "
-        f"(ports {ports[0]}–{ports[-1]}).\n",
+        f"PPO: {num_envs} envs x {N_STEPS_PER_ENV} steps/env = {rollout_size} transitions per rollout "
+        f"(ports {ports[0]}-{ports[-1]}).\n",
         flush=True,
     )
-
-    gui_proc: subprocess.Popen | None = None
-    if not args.no_gui:
-        gui_proc = _launch_gui_monitor()
 
     try:
         model = PPO(
@@ -288,8 +234,6 @@ def main() -> None:
         raise
     finally:
         vec.close()
-        if gui_proc is not None and gui_proc.poll() is None:
-            gui_proc.terminate()
 
 
 if __name__ == "__main__":

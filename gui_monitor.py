@@ -41,7 +41,6 @@ from typing import TextIO
 _ROOT = Path(__file__).resolve().parent
 _DEFAULT_JSON = _ROOT / "logs" / "training_live.json"
 _DEFAULT_RUNS = _ROOT / "logs" / "best_runs.json"
-_TRAIN_LOG = _ROOT / "logs" / "training_gui.log"
 _WATCH_LOG = _ROOT / "logs" / "watch_run.log"
 _WATCH_PORT = 8099
 
@@ -346,7 +345,7 @@ class TrainingMonitorGUI:
         self._watch_proc: subprocess.Popen | None = None
         self._server_proc: subprocess.Popen | None = None
         self._train_proc: subprocess.Popen | None = None
-        self._train_log_handle: TextIO | None = None
+        self._train_via_terminal = False
         self._watch_log_handle: TextIO | None = None
         self._prog_frac = 0.0
 
@@ -680,11 +679,7 @@ class TrainingMonitorGUI:
         ).pack(side="left", padx=12, fill="x", expand=True)
 
     # ── Training start / stop ─────────────────────────────────────────
-    def _start_training(self) -> None:
-        if self._train_proc is not None and self._train_proc.poll() is None:
-            self._train_status.set("Training already running.")
-            return
-
+    def _build_train_cmd(self) -> list[str]:
         n = max(1, min(8, int(self._num_envs.get())))
         total = max(1000, int(self._timesteps.get()))
         cmd = [
@@ -693,44 +688,85 @@ class TrainingMonitorGUI:
             str(_ROOT / "run_local_training.py"),
             "--num-envs",
             str(n),
-            "--no-gui",
             "--total-timesteps",
             str(total),
         ]
-        # Headless is default; --watch / --headed override.
         if not self._headless.get():
             cmd.append("--headed")
         elif self._watch_live.get():
             cmd.append("--watch")
         if self._dummy_vec.get():
             cmd.extend(["--vec-env", "dummy"])
+        return cmd
 
-        _TRAIN_LOG.parent.mkdir(parents=True, exist_ok=True)
+    def _start_training(self) -> None:
+        if self._train_proc is not None and self._train_proc.poll() is None:
+            self._train_status.set("Training already running.")
+            return
+
+        cmd = self._build_train_cmd()
+        n = max(1, min(8, int(self._num_envs.get())))
+        env = {
+            **os.environ,
+            "POLYTRACK_FROM_GUI": "1",
+            "PYTHONUTF8": "1",
+            "PYTHONIOENCODING": "utf-8",
+        }
         try:
-            log_f: TextIO = open(_TRAIN_LOG, "w", encoding="utf-8")
-            log_f.write(f"$ {' '.join(cmd)}\n\n")
-            log_f.flush()
-            self._train_log_handle = log_f
-            kw: dict = {
-                "cwd": str(_ROOT),
-                "stdout": log_f,
-                "stderr": subprocess.STDOUT,
-                "env": {**os.environ, "POLYTRACK_FROM_GUI": "1"},
-            }
             if sys.platform == "win32":
-                kw["creationflags"] = (
-                    getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)
-                    | getattr(subprocess, "CREATE_NO_WINDOW", 0)
+                # Visible cmd window — training logs print there.
+                self._train_proc = subprocess.Popen(
+                    cmd,
+                    cwd=str(_ROOT),
+                    env=env,
+                    creationflags=(
+                        getattr(subprocess, "CREATE_NEW_CONSOLE", 0)
+                        | getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)
+                    ),
                 )
+            elif sys.platform == "darwin":
+                import json as _json
+                import shlex
+
+                joined = " ".join(shlex.quote(c) for c in cmd)
+                script = f"cd {shlex.quote(str(_ROOT))} && {joined}"
+                # One Terminal tab only (do not also Popen the same cmd).
+                osa = subprocess.Popen(
+                    [
+                        "osascript",
+                        "-e",
+                        f"tell application \"Terminal\" to do script {_json.dumps(script)}",
+                    ]
+                )
+                self._train_proc = osa  # Stop may only kill osascript; use pkill fallback
+                self._train_via_terminal = True
             else:
-                kw["start_new_session"] = True
-            self._train_proc = subprocess.Popen(cmd, **kw)
+                from shutil import which
+
+                term_cmd: list[str] | None = None
+                if which("gnome-terminal"):
+                    term_cmd = ["gnome-terminal", "--", *cmd]
+                elif which("xterm"):
+                    term_cmd = ["xterm", "-e", *cmd]
+                if term_cmd is not None:
+                    self._train_proc = subprocess.Popen(
+                        term_cmd, cwd=str(_ROOT), env=env, start_new_session=True
+                    )
+                else:
+                    self._train_proc = subprocess.Popen(
+                        cmd, cwd=str(_ROOT), env=env, start_new_session=True
+                    )
+                self._train_via_terminal = False
+
+            if sys.platform == "win32":
+                self._train_via_terminal = False
+
             mode = "headed" if not self._headless.get() else (
                 "watch-0" if self._watch_live.get() else "headless"
             )
+            pid = self._train_proc.pid if self._train_proc else "?"
             self._train_status.set(
-                f"Training started (pid {self._train_proc.pid}) · {n} envs · {mode} · "
-                f"log: logs/training_gui.log"
+                f"Training started in a terminal window · {n} envs · {mode} · pid {pid}"
             )
             self._set_live_pill(True, "TRAINING")
             self._start_btn.config(state="disabled")
@@ -739,75 +775,60 @@ class TrainingMonitorGUI:
 
     def _stop_training(self) -> None:
         proc = self._train_proc
-        if proc is None or proc.poll() is not None:
-            self._train_status.set("No training process to stop.")
-            self._start_btn.config(state="normal")
-            self._set_live_pill(False, "IDLE")
-            return
         self._train_status.set("Stopping training…")
         self._root.update_idletasks()
-        pid = proc.pid
         try:
             if sys.platform == "win32":
-                subprocess.run(
-                    ["taskkill", "/F", "/T", "/PID", str(pid)],
-                    capture_output=True,
-                    check=False,
-                )
-            else:
-                try:
-                    os.killpg(os.getpgid(pid), signal.SIGTERM)
-                except (ProcessLookupError, PermissionError):
-                    proc.terminate()
-            try:
-                proc.wait(timeout=8)
-            except subprocess.TimeoutExpired:
-                if sys.platform == "win32":
+                if proc is not None and proc.poll() is None:
                     subprocess.run(
-                        ["taskkill", "/F", "/T", "/PID", str(pid)],
+                        ["taskkill", "/F", "/T", "/PID", str(proc.pid)],
                         capture_output=True,
                         check=False,
                     )
-                else:
+            else:
+                # Kill train processes started from this project.
+                subprocess.run(
+                    ["pkill", "-f", str(_ROOT / "run_local_training.py")],
+                    capture_output=True,
+                    check=False,
+                )
+                if proc is not None and proc.poll() is None:
                     try:
-                        os.killpg(os.getpgid(pid), signal.SIGKILL)
-                    except (ProcessLookupError, PermissionError):
-                        proc.kill()
+                        os.killpg(os.getpgid(proc.pid), signal.SIGTERM)
+                    except (ProcessLookupError, PermissionError, OSError):
+                        try:
+                            proc.terminate()
+                        except Exception:
+                            pass
+            if proc is not None:
+                try:
+                    proc.wait(timeout=5)
+                except (subprocess.TimeoutExpired, Exception):
+                    pass
         except Exception as exc:
             self._train_status.set(f"Stop error: {exc}")
-        finally:
-            self._close_train_log()
-            self._train_proc = None
-            self._start_btn.config(state="normal")
-            self._set_live_pill(False, "STOPPED")
-            self._train_status.set("Training stopped.")
-
-    def _close_train_log(self) -> None:
-        if self._train_log_handle is not None:
-            try:
-                self._train_log_handle.close()
-            except OSError:
-                pass
-            self._train_log_handle = None
+            return
+        self._train_proc = None
+        self._train_via_terminal = False
+        self._start_btn.config(state="normal")
+        self._set_live_pill(False, "STOPPED")
+        self._train_status.set("Training stopped.")
 
     def _check_train_proc(self) -> None:
         if self._train_proc is None:
             return
+        # Terminal-launched jobs: osascript exits immediately — keep "TRAINING"
+        # until user hits Stop or live JSON stops updating for a long time.
+        if self._train_via_terminal:
+            return
         code = self._train_proc.poll()
         if code is None:
             return
-        self._close_train_log()
         if code == 0:
             self._train_status.set("Training finished.")
             self._set_live_pill(False, "DONE")
         else:
-            tip = ""
-            try:
-                tip = _TRAIN_LOG.read_text(encoding="utf-8", errors="replace")[-200:]
-            except OSError:
-                pass
-            brief = tip.strip().splitlines()[-1] if tip.strip() else f"exit {code}"
-            self._train_status.set(f"Training exited: {brief}")
+            self._train_status.set(f"Training exited (code {code}). Check the terminal window.")
             self._set_live_pill(False, "ERROR")
         self._train_proc = None
         self._start_btn.config(state="normal")
