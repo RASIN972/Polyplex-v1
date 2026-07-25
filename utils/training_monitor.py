@@ -76,7 +76,12 @@ class TrainingMonitor(BaseCallback):
         ghost.num_timesteps = 0
         ghost._ep_num = 0
         ghost._last_rewards = deque(maxlen=10)
+        ghost._last_fitness = deque(maxlen=10)
         ghost._episodes = []
+        ghost._speed_samples = []
+        ghost._fps_t = 0.0
+        ghost._fps_steps = 0
+        ghost._best_fitness = 0.0
         cls._draw(ghost)
 
     def _on_training_start(self) -> None:
