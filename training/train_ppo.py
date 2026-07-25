@@ -6,6 +6,7 @@ import os
 import socket
 import subprocess
 import sys
+import time
 import traceback
 from datetime import datetime
 from pathlib import Path
@@ -40,14 +41,40 @@ def _launch_gui_monitor() -> subprocess.Popen | None:
     if sys.platform != "win32" and not os.environ.get("DISPLAY") and sys.platform != "darwin":
         print("[gui_monitor] No DISPLAY — skipping GUI monitor (headless server).", flush=True)
         return None
+    log_path = _ROOT / "logs" / "gui_monitor.log"
     try:
+        log_path.parent.mkdir(parents=True, exist_ok=True)
+        log_f = open(log_path, "w", encoding="utf-8")
         proc = subprocess.Popen(
-            [sys.executable, str(gui_script)],
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
+            [sys.executable, "-u", str(gui_script)],
+            stdout=log_f,
+            stderr=subprocess.STDOUT,
             close_fds=True,
         )
-        print(f"[gui_monitor] Launched (pid {proc.pid}). Close the window any time.", flush=True)
+        # Brief settle — if Tk crashes immediately, surface it.
+        time.sleep(0.4)
+        if proc.poll() is not None:
+            try:
+                log_f.flush()
+                log_f.close()
+            except OSError:
+                pass
+            detail = ""
+            try:
+                detail = log_path.read_text(encoding="utf-8", errors="replace")[-500:]
+            except OSError:
+                pass
+            print(
+                f"[gui_monitor] Exited immediately (code {proc.returncode}). "
+                f"See logs/gui_monitor.log\n{detail}",
+                flush=True,
+            )
+            return None
+        print(
+            f"[gui_monitor] Launched (pid {proc.pid}). Close the window any time. "
+            f"(log: logs/gui_monitor.log)",
+            flush=True,
+        )
         return proc
     except Exception as exc:
         print(f"[gui_monitor] Could not launch GUI monitor: {exc}", flush=True)
@@ -135,9 +162,16 @@ def main() -> None:
         action="store_true",
         help="Suppress the auto-launched Tkinter GUI monitor window.",
     )
+    parser.add_argument(
+        "--total-timesteps",
+        type=int,
+        default=TOTAL_TIMESTEPS,
+        help=f"PPO training horizon (default: {TOTAL_TIMESTEPS})",
+    )
     args = parser.parse_args()
 
     num_envs = max(1, int(args.num_envs))
+    total_timesteps = max(1000, int(args.total_timesteps))
     base = args.port if args.port is not None else args.base_port
     ports = [base + i for i in range(num_envs)]
 
@@ -221,12 +255,12 @@ def main() -> None:
         elite_cb = EliteFitnessCallback(
             checkpoint_dir, track_index=args.track_index, verbose=1
         )
-        monitor_cb = TrainingMonitor(TOTAL_TIMESTEPS)
+        monitor_cb = TrainingMonitor(total_timesteps)
 
-        TrainingMonitor.show_bootstrap(TOTAL_TIMESTEPS)
+        TrainingMonitor.show_bootstrap(total_timesteps)
 
         model.learn(
-            total_timesteps=TOTAL_TIMESTEPS,
+            total_timesteps=total_timesteps,
             callback=[checkpoint_cb, elite_cb, monitor_cb],
             progress_bar=False,
         )

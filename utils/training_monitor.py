@@ -70,6 +70,12 @@ class TrainingMonitor(BaseCallback):
         self._fps_steps: int = 0
         self._best_fitness = 0.0
         self._best_reward = float("-inf")
+        # Rolling series for the GUI progress graph (sampled every live-json write).
+        self._hist_ts: list[int] = []
+        self._hist_fit: list[float] = []
+        self._hist_rew: list[float] = []
+        self._hist_best_fit: list[float] = []
+        self._hist_max = 200
 
     @classmethod
     def show_bootstrap(cls, total_timesteps: int) -> None:
@@ -86,6 +92,11 @@ class TrainingMonitor(BaseCallback):
         ghost._fps_steps = 0
         ghost._best_fitness = 0.0
         ghost._best_reward = float("-inf")
+        ghost._hist_ts = []
+        ghost._hist_fit = []
+        ghost._hist_rew = []
+        ghost._hist_best_fit = []
+        ghost._hist_max = 200
         cls._draw(ghost)
 
     def _on_training_start(self) -> None:
@@ -164,6 +175,16 @@ class TrainingMonitor(BaseCallback):
             }
             for e in self._episodes[-5:]
         ]
+        self._hist_ts.append(int(self.num_timesteps))
+        self._hist_fit.append(round(mean_fitness, 2))
+        self._hist_rew.append(round(mean_reward, 3))
+        self._hist_best_fit.append(round(self._best_fitness, 2))
+        if len(self._hist_ts) > self._hist_max:
+            self._hist_ts = self._hist_ts[-self._hist_max :]
+            self._hist_fit = self._hist_fit[-self._hist_max :]
+            self._hist_rew = self._hist_rew[-self._hist_max :]
+            self._hist_best_fit = self._hist_best_fit[-self._hist_max :]
+
         data = {
             "timesteps": self.num_timesteps,
             "total_timesteps": self._total,
@@ -180,6 +201,12 @@ class TrainingMonitor(BaseCallback):
             "finishes": n_fin,
             "off_tracks": n_off,
             "last5": last5,
+            "history": {
+                "timesteps": self._hist_ts,
+                "mean_fitness": self._hist_fit,
+                "mean_reward": self._hist_rew,
+                "best_fitness": self._hist_best_fit,
+            },
         }
         try:
             _LIVE_JSON_PATH.parent.mkdir(parents=True, exist_ok=True)

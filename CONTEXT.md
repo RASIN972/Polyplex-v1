@@ -211,7 +211,7 @@ Default training: CPU. ROCm example: `pip install torch --index-url https://down
 
 **Phase 2 — complete:** `env/polytrack_env.py` — `PolytrackEnv(gymnasium.Env)`, `port` constructor arg, **9-d** lean obs / 9 discrete actions, step cadence ~50 ms, 30 s episodes, **horizontal-distance fitness**, jump-aware off-track reset.
 
-**Phase 3 — script:** `training/train_ppo.py` — `Monitor` + **`SubprocVecEnv`** (default **4** envs) or `--vec-env dummy`; PPO (`ent_coef=0.02`, …), `EliteFitnessCallback` → `checkpoints/best_model.zip`, periodic checkpoints every 50k, `TrainingMonitor` + auto `gui_monitor.py` dashboard. Pass `--watch` for headed worker 0. Env exposes `info["fitness"]`, `info["distance_m"]`, `info["outcome"]`, `info["checkpoints"]`. Watch logs: `logs/watch_run.log`.
+**Phase 3 — script:** `training/train_ppo.py` — `Monitor` + **`SubprocVecEnv`** (default **4** envs) or `--vec-env dummy`; PPO (`ent_coef=0.02`, …), `EliteFitnessCallback` → `checkpoints/best_model.zip`, periodic checkpoints every 50k, `TrainingMonitor`. Preferred UI: **`python start_gui.py`** — start/stop training, num-envs / headless / watch, collapsible progress graph, best-run Watch. Env exposes `info["fitness"]`, `info["distance_m"]`, `info["outcome"]`, `info["checkpoints"]`. Logs: `logs/training_gui.log`, `logs/watch_run.log`.
 
 ### Running on macOS (e.g. M1, 8 GB)
 
