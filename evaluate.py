@@ -22,6 +22,9 @@ import time
 import traceback
 from pathlib import Path
 
+# Immediate feedback for GUI / watch (before heavy torch imports).
+print("Watch: starting evaluate.py …", flush=True)
+
 _ROOT = Path(__file__).resolve().parent
 if str(_ROOT) not in sys.path:
     sys.path.insert(0, str(_ROOT))
@@ -116,14 +119,14 @@ def main() -> None:
 
         from env.polytrack_env import OBS_SIZE, PolytrackEnv
 
-        # Load policy first (fast fail) before opening Chromium.
-        print(f"Loading model: {model_path}", flush=True)
+        print(f"Watch: loading model {model_path.name} …", flush=True)
         try:
             model = PPO.load(str(model_path), device="cpu")
         except Exception as exc:
             print(f"Failed to load PPO checkpoint: {exc}", file=sys.stderr)
             traceback.print_exc()
             raise SystemExit(2) from exc
+        print("Watch: model loaded.", flush=True)
 
         obs_space = getattr(model, "observation_space", None)
         if obs_space is not None and hasattr(obs_space, "shape"):
@@ -139,11 +142,11 @@ def main() -> None:
         server_proc = _ensure_server(args.port, auto=args.auto_server)
 
         print(
-            f"  port={args.port}  track-index={args.track_index}  "
+            f"Watch: port={args.port} track={args.track_index} "
             f"deterministic={deterministic}",
             flush=True,
         )
-        print("  Opening headed Chromium — press Ctrl+C to stop.\n", flush=True)
+        print("Watch: opening headed Chromium window …", flush=True)
 
         env = PolytrackEnv(
             port=args.port,
