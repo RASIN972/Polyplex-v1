@@ -382,11 +382,10 @@ _RL_INIT_JS = """
       st.ground_dist = _computeGroundDist(track, pos);
     }
 
-    // Hint for Python: clearly off the road / in the void (not a short jump).
-    // Jumps: briefly airborne but ground_dist still finite (track mesh below).
+    // Hint for Python: deep void / long freefall only (not jumps or open track).
     st.off_track = hasStarted && (
-      pos.y < -8 ||
-      (st.airborne && st.ground_dist >= MAX_RAY_DIST * 0.9 && st.dist_to_checkpoint > 40)
+      pos.y < -20 ||
+      (st.airborne && st.ground_dist >= MAX_RAY_DIST && st.dist_to_checkpoint > 100)
     );
 
     requestAnimationFrame(tick);

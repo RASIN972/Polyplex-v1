@@ -32,12 +32,11 @@ READY_TIMEOUT_S = float(os.environ.get("POLYTRACK_READY_TIMEOUT_S", "300"))
 # Hard episode cap: 30s wall-clock from reset (also ends if in-game timer hits 30s).
 EPISODE_TIME_LIMIT_S = 30.0
 MAX_CRASHES = 3
-# Off-track → terminate episode immediately + double-KeyR (jumps allowed briefly).
-Y_VOID = -2.0
-AIRBORNE_OFFTRACK_STEPS = 8   # ~0.4 s freefall with no ground
-GROUND_MISS = 80.0
-WALL_CLEAR = 45.0             # no nearby walls ⇒ left the road
-OFFTRACK_WALL_CLEAR_STEPS = 6 # ~0.3 s
+# Off-track → terminate + double-KeyR. Keep this *loose* — open track / jumps
+# must not false-trigger (no wall-clear heuristic; that fired on-track).
+Y_VOID = -20.0
+AIRBORNE_OFFTRACK_STEPS = 30  # ~1.5 s freefall with no ground under car
+GROUND_MISS = 95.0
 PI_F = float(np.pi)
 DEFAULT_TRACK_MENU_INDEX = 0
 RESET_RETRIES = int(os.environ.get("POLYTRACK_RESET_RETRIES", "2"))
@@ -103,9 +102,7 @@ class PolytrackEnv(gym.Env):
         self._finish_scored: bool = False
         self._horiz_distance: float = 0.0
         self._airborne_steps: int = 0
-        self._clear_wall_steps: int = 0
         self._episode_steps: int = 0
-        self._peak_y: float = 0.0
         self._episode_t0: float = 0.0
         # Track whether the last episode ended via has_finished (needs FinishDebug recovery).
         self._last_episode_finished: bool = False
@@ -244,22 +241,21 @@ class PolytrackEnv(gym.Env):
         self._last_xz = (x, z)
 
     def _check_off_track(self, s: dict[str, Any]) -> bool:
-        """True when the car left the track — episode ends and KeyR is pressed now."""
+        """True only for clear void / long freefall — not jumps or open track.
+
+        On detect: episode terminates and double-KeyR runs immediately in step().
+        """
         if not s.get("has_started"):
             self._airborne_steps = 0
-            self._clear_wall_steps = 0
             return False
 
         try:
             y = float(s["position"]["y"])
         except (KeyError, TypeError, ValueError):
             y = 0.0
-        if y > self._peak_y:
-            self._peak_y = y
 
+        # Deep void only (open road / small dips must not trip this).
         if y < Y_VOID:
-            return True
-        if self._peak_y - y > 12.0:
             return True
         if bool(s.get("off_track")):
             return True
@@ -271,19 +267,9 @@ class PolytrackEnv(gym.Env):
         else:
             self._airborne_steps = 0
 
+        # Long freefall with nothing under the car (jumps still have ground_dist).
         if self._airborne_steps >= AIRBORNE_OFFTRACK_STEPS and ground >= GROUND_MISS:
             return True
-
-        # Left the road: no nearby walls for a few steps (after some movement).
-        raw_walls = s.get("wall_dists") or []
-        if raw_walls and len(raw_walls) >= 6:
-            min_wall = min(float(d) for d in raw_walls)
-            if min_wall >= WALL_CLEAR:
-                self._clear_wall_steps += 1
-            else:
-                self._clear_wall_steps = 0
-            if self._clear_wall_steps >= OFFTRACK_WALL_CLEAR_STEPS and self._horiz_distance > 5.0:
-                return True
         return False
 
     async def _press_reset_keys(self) -> None:
@@ -402,13 +388,8 @@ class PolytrackEnv(gym.Env):
         self._finish_scored = False
         self._horiz_distance = 0.0
         self._airborne_steps = 0
-        self._clear_wall_steps = 0
         self._episode_steps = 0
         self._episode_t0 = time.monotonic()
-        try:
-            self._peak_y = float(s0["position"]["y"])
-        except (KeyError, TypeError, ValueError):
-            self._peak_y = 0.0
         self._last_episode_finished = False
         self._update_horiz_distance(s0)
         obs = self._obs_from_state(s0, STEP_WAIT_S)
