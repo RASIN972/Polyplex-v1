@@ -1,11 +1,12 @@
 #!/usr/bin/env python3
-"""Launch the Polyplex training control GUI.
+"""Launch the Polyplex training control GUI (modern NiceGUI web dashboard).
 
 Usage:
     python start_gui.py
 
-From the window you can start/stop training, set num envs / headless / watch,
-view live metrics + a collapsible progress graph, and replay best runs.
+Opens in your browser. From the dashboard you can start/stop training,
+set num envs / headless / watch, view live metrics + an interactive progress
+graph, and replay best runs.
 """
 
 from __future__ import annotations

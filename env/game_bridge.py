@@ -72,6 +72,8 @@ _RL_INIT_JS = """
     wheels_contact: [false, false, false, false],
     airborne: false,
     ground_dist: 100,
+    // 0-5 count of downward rays that hit track mesh within 25 m (5 positions: centre + F/B/L/R 2m)
+    track_support: 5,
     off_track: false,
   };
 
@@ -220,6 +222,39 @@ _RL_INIT_JS = """
       _raycaster.near = 0.5;
       _raycaster.far = MAX_RAY_DIST;
     }
+  }
+
+  function _computeTrackSupport(track, pos, yaw) {
+    // Cast 5 short downward rays (centre + F/B/L/R 2 m offset) from y+2, range 25 m.
+    // Returns how many hit track mesh — 0 means nothing under/near the car.
+    // Jumps still hit mesh below so they don't count as "off support".
+    if (!_initRayObjects()) return 5; // safe default: assume on track if raycasting unavailable
+    if (!track || typeof track.shortRaycast !== "function") return 5;
+    const sinY = Math.sin(yaw);
+    const cosY = Math.cos(yaw);
+    const offsets = [
+      [0,              0             ], // centre
+      [sinY * 2,       cosY * 2      ], // forward 2 m
+      [-sinY * 2,      -cosY * 2     ], // back 2 m
+      [-cosY * 2,      sinY * 2      ], // left 2 m
+      [cosY * 2,       -sinY * 2     ], // right 2 m
+    ];
+    _rayDir.set(0, -1, 0);
+    _raycaster.near = 0.1;
+    _raycaster.far = 25.0;
+    let count = 0;
+    for (let i = 0; i < offsets.length; i++) {
+      _rayOrigin.set(pos.x + offsets[i][0], pos.y + 2.0, pos.z + offsets[i][1]);
+      _raycaster.set(_rayOrigin, _rayDir);
+      try {
+        if (track.shortRaycast(_raycaster)) count++;
+      } catch (e) {
+        count++; // if raycast throws, assume support present (safe fallback)
+      }
+    }
+    _raycaster.near = 0.5;
+    _raycaster.far = MAX_RAY_DIST;
+    return count;
   }
 
   function _readWheelsContact(car) {
@@ -380,13 +415,11 @@ _RL_INIT_JS = """
       const dists = _computeWallDists(track, pos, euler.y);
       if (dists) st.wall_dists = dists;
       st.ground_dist = _computeGroundDist(track, pos);
+      st.track_support = _computeTrackSupport(track, pos, euler.y);
     }
 
-    // Hint for Python: deep void / long freefall only (not jumps or open track).
-    st.off_track = hasStarted && (
-      pos.y < -20 ||
-      (st.airborne && st.ground_dist >= MAX_RAY_DIST && st.dist_to_checkpoint > 100)
-    );
+    // Hint for Python: void only. All streak/lateral logic lives in Python _check_off_track.
+    st.off_track = hasStarted && pos.y < -20;
 
     requestAnimationFrame(tick);
   }
@@ -627,6 +660,7 @@ class GameBridge:
             wheels_contact: Array.isArray(s.wheels_contact) ? [...s.wheels_contact] : [false,false,false,false],
             airborne: !!s.airborne,
             ground_dist: typeof s.ground_dist === "number" ? s.ground_dist : 100,
+            track_support: typeof s.track_support === "number" ? s.track_support : 5,
             off_track: !!s.off_track,
           };
         }"""

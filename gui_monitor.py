@@ -1,14 +1,11 @@
 #!/usr/bin/env python3
-"""Polyplex training control dashboard (lavender / black).
+"""Polyplex training control dashboard — modern web UI (NiceGUI / Quasar).
 
 Launch with::
 
     python start_gui.py
 
-Features:
-  - Start / stop training with num-envs, headless, watch-worker-0, dummy vec
-  - Live metrics + collapsible progress graph
-  - Best-runs browser + Watch replay
+Opens in your browser with native-feeling buttons, charts, and scrollbars.
 """
 
 from __future__ import annotations
@@ -23,20 +20,9 @@ import sys
 import time
 import zipfile
 from pathlib import Path
-from tkinter import (
-    BooleanVar,
-    Button,
-    Canvas,
-    Checkbutton,
-    Frame,
-    IntVar,
-    Label,
-    Spinbox,
-    StringVar,
-    Tk,
-    ttk,
-)
-from typing import TextIO
+from typing import Any, TextIO
+
+from nicegui import app, ui
 
 _ROOT = Path(__file__).resolve().parent
 _DEFAULT_JSON = _ROOT / "logs" / "training_live.json"
@@ -44,6 +30,7 @@ _DEFAULT_RUNS = _ROOT / "logs" / "best_runs.json"
 _WATCH_LOG = _ROOT / "logs" / "watch_run.log"
 _WATCH_PORT = 8099
 
+# Theme
 _BG = "#0a0a0c"
 _CARD = "#14141a"
 _ELEVATED = "#1c1c24"
@@ -59,15 +46,14 @@ _GREEN = "#34d399"
 _RED = "#f87171"
 _AMBER = "#fbbf24"
 
-_UI = "Segoe UI" if sys.platform == "win32" else "Helvetica Neue"
-_MONO = "Consolas" if sys.platform == "win32" else "Menlo"
-
 _OUTCOME_COLORS = {
     "finished": _GREEN,
     "crashed": _RED,
     "timeout": _AMBER,
     "off_track": _ORANGE,
 }
+
+_CLI_ARGS: argparse.Namespace | None = None
 
 
 def _fmt_hms(seconds: float) -> str:
@@ -91,597 +77,457 @@ def _port_open(port: int) -> bool:
         return False
 
 
-def _round_rect(
-    canvas: Canvas,
-    x1: float,
-    y1: float,
-    x2: float,
-    y2: float,
-    r: float,
-    **kw: object,
-) -> int:
-    r = min(r, (x2 - x1) / 2, (y2 - y1) / 2)
-    points = [
-        x1 + r, y1, x2 - r, y1, x2, y1, x2, y1 + r,
-        x2, y2 - r, x2, y2, x2 - r, y2, x1 + r, y2,
-        x1, y2, x1, y2 - r, x1, y1 + r, x1, y1,
-    ]
-    return canvas.create_polygon(points, smooth=True, **kw)  # type: ignore[arg-type]
-
-
-def _pill_button(
-    parent: Frame,
-    text: str,
-    command: object,
-    *,
-    primary: bool = True,
-    danger: bool = False,
-) -> Button:
-    if danger:
-        bg, abg, fg = _RED, "#fb7185", _BG
-    elif primary:
-        bg, abg, fg = _LAVENDER, "#b8a4ff", _BG
-    else:
-        bg, abg, fg = _ELEVATED, _BORDER, _LAVENDER_SOFT
-    return Button(
-        parent,
-        text=text,
-        command=command,  # type: ignore[arg-type]
-        bg=bg,
-        fg=fg,
-        activebackground=abg,
-        activeforeground=fg if not primary and not danger else _BG,
-        font=(_UI, 11, "bold"),
-        relief="flat",
-        borderwidth=0,
-        padx=18,
-        pady=9,
-        cursor="hand2",
-        highlightthickness=0,
-    )
-
-
-class RoundedCard(Frame):
+class TrainingMonitorApp:
     def __init__(
         self,
-        parent: Frame | Tk,
-        *,
-        width: int | None = None,
-        height: int | None = None,
-        radius: int = 18,
-        fill: str = _CARD,
-        padding: int = 14,
-    ) -> None:
-        super().__init__(parent, bg=_BG)
-        if width is not None:
-            self.configure(width=width)
-        if height is not None:
-            self.configure(height=height)
-        if width is not None or height is not None:
-            self.pack_propagate(False)
-        self._radius = radius
-        self._fill = fill
-        self._canvas = Canvas(self, bg=_BG, highlightthickness=0, bd=0)
-        self._canvas.place(x=0, y=0, relwidth=1, relheight=1)
-        self.content = Frame(self, bg=fill)
-        self.content.pack(fill="both", expand=True, padx=padding, pady=padding)
-        self.content.lift()
-        self.bind("<Configure>", self._paint)
-        self._canvas.bind("<Configure>", self._paint)
-
-    def _paint(self, _e: object | None = None) -> None:
-        w = max(self.winfo_width(), 2)
-        h = max(self.winfo_height(), 2)
-        self._canvas.delete("all")
-        _round_rect(
-            self._canvas, 1, 1, w - 1, h - 1, self._radius, fill=self._fill, outline=_BORDER
-        )
-
-
-class MetricCard(RoundedCard):
-    def __init__(
-        self,
-        parent: Frame,
-        title: str,
-        *,
-        accent: str = _LAVENDER,
-        width: int = 158,
-    ) -> None:
-        super().__init__(parent, width=width, height=104, radius=20, fill=_CARD)
-        Label(
-            self.content, text=title.upper(), font=(_UI, 9), fg=_LAVENDER_DIM, bg=_CARD, anchor="w"
-        ).pack(fill="x")
-        self.value = StringVar(value="—")
-        Label(
-            self.content,
-            textvariable=self.value,
-            font=(_UI, 24, "bold"),
-            fg=accent,
-            bg=_CARD,
-            anchor="w",
-        ).pack(fill="x", pady=(2, 0))
-        self.sub = StringVar(value="")
-        Label(
-            self.content, textvariable=self.sub, font=(_UI, 9), fg=_DIM, bg=_CARD, anchor="w"
-        ).pack(fill="x")
-
-
-class ProgressGraph(Frame):
-    """Collapsible dual-series chart (mean fitness + mean reward)."""
-
-    def __init__(self, parent: Frame) -> None:
-        super().__init__(parent, bg=_BG)
-        self._expanded = BooleanVar(value=True)
-        self._hist: dict = {}
-
-        hdr = Frame(self, bg=_BG)
-        hdr.pack(fill="x")
-        self._toggle_btn = Button(
-            hdr,
-            text="▼  Progress graph",
-            command=self._toggle,
-            bg=_BG,
-            fg=_LAVENDER_SOFT,
-            activebackground=_BG,
-            activeforeground=_LAVENDER,
-            font=(_UI, 11, "bold"),
-            relief="flat",
-            borderwidth=0,
-            cursor="hand2",
-            anchor="w",
-            highlightthickness=0,
-        )
-        self._toggle_btn.pack(side="left")
-        Label(
-            hdr,
-            text="lavender = mean distance   ·   orange = mean reward",
-            font=(_UI, 9),
-            fg=_DIM,
-            bg=_BG,
-        ).pack(side="right")
-
-        self._body = RoundedCard(self, height=200, radius=18, fill=_CARD)
-        self._body.pack(fill="x", pady=(8, 0))
-        self._body.configure(height=200)
-        self._canvas = Canvas(
-            self._body.content, height=160, bg=_ELEVATED, highlightthickness=0, bd=0
-        )
-        self._canvas.pack(fill="both", expand=True)
-        self._canvas.bind("<Configure>", lambda _e: self.redraw())
-        self._empty = Label(
-            self._body.content,
-            text="Start training to see progress…",
-            font=(_UI, 10),
-            fg=_DIM,
-            bg=_ELEVATED,
-        )
-
-    def _toggle(self) -> None:
-        if self._expanded.get():
-            self._expanded.set(False)
-            self._body.pack_forget()
-            self._toggle_btn.config(text="▶  Progress graph")
-        else:
-            self._expanded.set(True)
-            self._body.pack(fill="x", pady=(8, 0))
-            self._toggle_btn.config(text="▼  Progress graph")
-            self.redraw()
-
-    def update_history(self, hist: dict) -> None:
-        self._hist = hist or {}
-        if self._expanded.get():
-            self.redraw()
-
-    def redraw(self) -> None:
-        c = self._canvas
-        c.delete("all")
-        w = max(c.winfo_width(), 40)
-        h = max(c.winfo_height(), 40)
-        pad_l, pad_r, pad_t, pad_b = 44, 12, 12, 24
-        c.create_rectangle(0, 0, w, h, fill=_ELEVATED, outline="")
-
-        fit = [float(x) for x in (self._hist.get("mean_fitness") or [])]
-        rew = [float(x) for x in (self._hist.get("mean_reward") or [])]
-        ts = [int(x) for x in (self._hist.get("timesteps") or [])]
-        if len(fit) < 2:
-            c.create_text(
-                w / 2, h / 2, text="Start training to see progress…", fill=_DIM, font=(_UI, 11)
-            )
-            return
-
-        def _series(vals: list[float], color: str) -> None:
-            if len(vals) < 2:
-                return
-            vmin, vmax = min(vals), max(vals)
-            if abs(vmax - vmin) < 1e-9:
-                vmax = vmin + 1.0
-            n = len(vals)
-            pts: list[float] = []
-            for i, v in enumerate(vals):
-                x = pad_l + (w - pad_l - pad_r) * (i / (n - 1))
-                y = pad_t + (h - pad_t - pad_b) * (1.0 - (v - vmin) / (vmax - vmin))
-                pts.extend([x, y])
-            c.create_line(*pts, fill=color, width=2, smooth=True)
-
-        # area backdrop grid
-        for i in range(4):
-            y = pad_t + (h - pad_t - pad_b) * i / 3
-            c.create_line(pad_l, y, w - pad_r, y, fill=_BORDER)
-
-        _series(fit, _LAVENDER)
-        _series(rew, _ORANGE)
-
-        if ts:
-            c.create_text(
-                pad_l, h - 8, text=f"{ts[0]:,}", fill=_DIM, font=(_UI, 8), anchor="w"
-            )
-            c.create_text(
-                w - pad_r, h - 8, text=f"{ts[-1]:,}", fill=_DIM, font=(_UI, 8), anchor="e"
-            )
-        if fit:
-            c.create_text(
-                6, pad_t, text=f"{max(fit):.0f}", fill=_LAVENDER_DIM, font=(_UI, 8), anchor="nw"
-            )
-            c.create_text(
-                6, h - pad_b, text=f"{min(fit):.0f}", fill=_LAVENDER_DIM, font=(_UI, 8), anchor="sw"
-            )
-
-
-class TrainingMonitorGUI:
-    def __init__(
-        self,
-        root: Tk,
         json_path: Path,
         runs_path: Path,
         poll_ms: int,
         watch_port: int,
     ) -> None:
-        self._root = root
         self._json_path = json_path
         self._runs_path = runs_path
         self._poll_ms = poll_ms
         self._watch_port = watch_port
         self._runs: list[dict] = []
+        self._selected_run_id: int | None = None
         self._watch_proc: subprocess.Popen | None = None
         self._server_proc: subprocess.Popen | None = None
         self._train_proc: subprocess.Popen | None = None
         self._train_via_terminal = False
         self._watch_log_handle: TextIO | None = None
-        self._prog_frac = 0.0
 
-        self._num_envs = IntVar(value=4)
-        self._headless = BooleanVar(value=True)
-        self._watch_live = BooleanVar(value=False)
-        self._dummy_vec = BooleanVar(value=False)
-        self._timesteps = IntVar(value=1_000_000)
+        # Controls
+        self.num_envs = 4
+        self.timesteps = 1_000_000
+        self.headless = True
+        self.watch_live = False
+        self.dummy_vec = False
 
-        root.title("Polyplex — Training Control")
-        root.configure(bg=_BG)
-        root.minsize(1120, 740)
-        root.resizable(True, True)
+        # UI refs
+        self._live_pill: ui.badge | None = None
+        self._start_btn: ui.button | None = None
+        self._train_status: ui.label | None = None
+        self._progress_lbl: ui.label | None = None
+        self._uptime_lbl: ui.label | None = None
+        self._progress_bar: ui.linear_progress | None = None
+        self._chart: ui.echart | None = None
+        self._graph_expanded = True
+        self._graph_body: ui.element | None = None
+        self._graph_toggle: ui.button | None = None
+        self._runs_table: ui.table | None = None
+        self._detail_lbl: ui.label | None = None
+        self._watch_status: ui.label | None = None
+        self._ep_labels: list[ui.label] = []
+        self._metric_values: dict[str, ui.label] = {}
+        self._metric_subs: dict[str, ui.label] = {}
+        self._outcome_values: dict[str, ui.label] = {}
 
         self._build_ui()
-        root.protocol("WM_DELETE_WINDOW", self._on_close)
-        self._poll()
+        ui.timer(poll_ms / 1000.0, self._poll)
+        app.on_shutdown(self._on_close)
 
     # ── UI ────────────────────────────────────────────────────────────
     def _build_ui(self) -> None:
-        root = self._root
-
-        nav = Frame(root, bg=_BG, height=60)
-        nav.pack(fill="x", padx=20, pady=(14, 0))
-        nav.pack_propagate(False)
-        Label(
-            nav, text="Polyplex", font=(_UI, 20, "bold"), fg=_LAVENDER_SOFT, bg=_BG
-        ).pack(side="left", pady=8)
-        Label(
-            nav, text="  Training control", font=(_UI, 11), fg=_MUTED, bg=_BG
-        ).pack(side="left", pady=14)
-        self._live_canvas = Canvas(nav, width=96, height=28, bg=_BG, highlightthickness=0)
-        self._live_canvas.pack(side="right", pady=16)
-        self._set_live_pill(False, "IDLE")
-
-        body = Frame(root, bg=_BG)
-        body.pack(fill="both", expand=True, padx=20, pady=12)
-
-        # Control panel
-        ctrl = RoundedCard(body, height=118, radius=18, fill=_CARD)
-        ctrl.pack(fill="x", pady=(0, 12))
-        ctrl.configure(height=118)
-
-        Label(
-            ctrl.content, text="TRAINING", font=(_UI, 12, "bold"), fg=_TEXT, bg=_CARD, anchor="w"
-        ).pack(fill="x")
-
-        opts = Frame(ctrl.content, bg=_CARD)
-        opts.pack(fill="x", pady=(8, 0))
-
-        Label(opts, text="Envs", font=(_UI, 10), fg=_MUTED, bg=_CARD).pack(side="left")
-        Spinbox(
-            opts,
-            from_=1,
-            to=8,
-            textvariable=self._num_envs,
-            width=4,
-            font=(_UI, 11),
-            bg=_ELEVATED,
-            fg=_TEXT,
-            buttonbackground=_ELEVATED,
-            relief="flat",
-            highlightthickness=1,
-            highlightbackground=_BORDER,
-        ).pack(side="left", padx=(6, 14))
-
-        Label(opts, text="Timesteps", font=(_UI, 10), fg=_MUTED, bg=_CARD).pack(side="left")
-        Spinbox(
-            opts,
-            from_=10_000,
-            to=10_000_000,
-            increment=50_000,
-            textvariable=self._timesteps,
-            width=10,
-            font=(_UI, 11),
-            bg=_ELEVATED,
-            fg=_TEXT,
-            buttonbackground=_ELEVATED,
-            relief="flat",
-            highlightthickness=1,
-            highlightbackground=_BORDER,
-        ).pack(side="left", padx=(6, 14))
-
-        Checkbutton(
-            opts,
-            text="Headless",
-            variable=self._headless,
-            font=(_UI, 10),
-            fg=_LAVENDER_SOFT,
-            bg=_CARD,
-            activebackground=_CARD,
-            activeforeground=_LAVENDER,
-            selectcolor=_ELEVATED,
-            highlightthickness=0,
-        ).pack(side="left", padx=(0, 10))
-        Checkbutton(
-            opts,
-            text="Watch env 0",
-            variable=self._watch_live,
-            font=(_UI, 10),
-            fg=_LAVENDER_SOFT,
-            bg=_CARD,
-            activebackground=_CARD,
-            activeforeground=_LAVENDER,
-            selectcolor=_ELEVATED,
-            highlightthickness=0,
-        ).pack(side="left", padx=(0, 10))
-        Checkbutton(
-            opts,
-            text="Dummy vec (debug)",
-            variable=self._dummy_vec,
-            font=(_UI, 10),
-            fg=_MUTED,
-            bg=_CARD,
-            activebackground=_CARD,
-            activeforeground=_LAVENDER,
-            selectcolor=_ELEVATED,
-            highlightthickness=0,
-        ).pack(side="left", padx=(0, 10))
-
-        btns = Frame(ctrl.content, bg=_CARD)
-        btns.pack(fill="x", pady=(10, 0))
-        self._start_btn = _pill_button(btns, "Start training", self._start_training, primary=True)
-        self._start_btn.pack(side="left")
-        self._stop_btn = _pill_button(
-            btns, "Stop training", self._stop_training, primary=False, danger=True
+        ui.query("body").style(
+            f"background: {_BG}; color: {_TEXT}; "
+            "font-family: 'Segoe UI', 'Helvetica Neue', system-ui, sans-serif;"
         )
-        self._stop_btn.pack(side="left", padx=(10, 0))
-        self._train_status = StringVar(value="Idle — configure options, then Start.")
-        Label(
-            btns,
-            textvariable=self._train_status,
-            font=(_UI, 9),
-            fg=_LAVENDER_DIM,
-            bg=_CARD,
-            anchor="w",
-        ).pack(side="left", padx=14, fill="x", expand=True)
-
-        # Metrics
-        metrics = Frame(body, bg=_BG)
-        metrics.pack(fill="x", pady=(0, 10))
-        self._card_fitness = MetricCard(metrics, "Best distance", accent=_GREEN)
-        self._card_fitness.pack(side="left", padx=(0, 10))
-        self._card_reward = MetricCard(metrics, "Best reward", accent=_ORANGE)
-        self._card_reward.pack(side="left", padx=(0, 10))
-        self._card_mean = MetricCard(metrics, "Mean distance", accent=_LAVENDER)
-        self._card_mean.pack(side="left", padx=(0, 10))
-        self._card_steps = MetricCard(metrics, "Timesteps", accent=_LAVENDER_SOFT)
-        self._card_steps.pack(side="left", padx=(0, 10))
-        self._card_fps = MetricCard(metrics, "Rollout FPS", accent=_AMBER)
-        self._card_fps.pack(side="left")
-
-        # Progress bar strip
-        prog_wrap = RoundedCard(body, height=64, radius=16, fill=_CARD)
-        prog_wrap.pack(fill="x", pady=(0, 10))
-        prog_wrap.configure(height=64)
-        row = Frame(prog_wrap.content, bg=_CARD)
-        row.pack(fill="x")
-        self._progress_lbl = StringVar(value="Progress — not training")
-        Label(
-            row, textvariable=self._progress_lbl, font=(_UI, 11), fg=_TEXT, bg=_CARD
-        ).pack(side="left")
-        self._uptime_lbl = StringVar(value="")
-        Label(
-            row, textvariable=self._uptime_lbl, font=(_UI, 9), fg=_MUTED, bg=_CARD
-        ).pack(side="right")
-        self._prog_canvas = Canvas(
-            prog_wrap.content, height=8, bg=_ELEVATED, highlightthickness=0, bd=0
+        ui.add_head_html(
+            f"""
+            <style>
+              :root {{
+                --q-primary: {_LAVENDER};
+                --q-secondary: {_ORANGE};
+                --q-positive: {_GREEN};
+                --q-negative: {_RED};
+                --q-warning: {_AMBER};
+                --q-dark: {_CARD};
+              }}
+              .poly-card {{
+                background: {_CARD} !important;
+                border: 1px solid {_BORDER};
+                border-radius: 18px;
+                padding: 16px;
+              }}
+              .poly-elevated {{
+                background: {_ELEVATED} !important;
+                border-radius: 12px;
+              }}
+              .poly-metric-title {{
+                font-size: 11px;
+                letter-spacing: 0.06em;
+                color: {_LAVENDER_DIM};
+                font-weight: 600;
+              }}
+              .poly-metric-value {{
+                font-size: 28px;
+                font-weight: 700;
+                line-height: 1.15;
+                margin-top: 4px;
+              }}
+              .poly-metric-sub {{
+                font-size: 12px;
+                color: {_DIM};
+                margin-top: 2px;
+              }}
+              .poly-ep {{
+                font-family: Consolas, Menlo, monospace;
+                font-size: 12px;
+                padding: 4px 0;
+              }}
+              .q-table {{
+                background: {_ELEVATED} !important;
+                color: {_TEXT} !important;
+                border-radius: 12px;
+              }}
+              .q-table__top, .q-table__bottom, thead tr, tbody td {{
+                background: {_ELEVATED} !important;
+                color: {_TEXT} !important;
+                border-color: {_BORDER} !important;
+              }}
+              .q-table thead th {{
+                color: {_LAVENDER_DIM} !important;
+                font-size: 11px !important;
+                letter-spacing: 0.04em;
+              }}
+              .q-table tbody tr:hover {{
+                background: {_CARD} !important;
+              }}
+              .q-table__selected {{
+                background: {_LAVENDER}33 !important;
+              }}
+              .q-field__control {{
+                background: {_ELEVATED} !important;
+                border-radius: 10px !important;
+              }}
+              .q-checkbox__label, .q-toggle__label {{
+                color: {_LAVENDER_SOFT} !important;
+              }}
+              ::-webkit-scrollbar {{ width: 8px; height: 8px; }}
+              ::-webkit-scrollbar-track {{ background: {_BG}; }}
+              ::-webkit-scrollbar-thumb {{
+                background: {_BORDER};
+                border-radius: 8px;
+              }}
+              ::-webkit-scrollbar-thumb:hover {{ background: {_DIM}; }}
+            </style>
+            """
         )
-        self._prog_canvas.pack(fill="x", pady=(8, 0))
-        self._prog_fill = self._prog_canvas.create_rectangle(
-            0, 0, 0, 8, fill=_LAVENDER, outline=""
-        )
-        self._prog_canvas.bind("<Configure>", self._redraw_progress)
 
-        # Collapsible graph
-        self._graph = ProgressGraph(body)
-        self._graph.pack(fill="x", pady=(0, 12))
-
-        # Main split
-        split = Frame(body, bg=_BG)
-        split.pack(fill="both", expand=True)
-
-        left = Frame(split, bg=_BG, width=320)
-        left.pack(side="left", fill="y", padx=(0, 12))
-        left.pack_propagate(False)
-
-        out_card = RoundedCard(left, width=320, height=130, radius=18, fill=_CARD)
-        out_card.pack(fill="x", pady=(0, 10))
-        out_card.configure(width=320, height=130)
-        Label(
-            out_card.content, text="OUTCOMES", font=(_UI, 12, "bold"), fg=_TEXT, bg=_CARD, anchor="w"
-        ).pack(fill="x", pady=(0, 6))
-        grid = Frame(out_card.content, bg=_CARD)
-        grid.pack(fill="x")
-        self._fin_var = StringVar(value="0")
-        self._crash_var = StringVar(value="0")
-        self._off_var = StringVar(value="0")
-        for i, (title, var, color) in enumerate(
-            (
-                ("Finishes", self._fin_var, _GREEN),
-                ("Crashes", self._crash_var, _RED),
-                ("Off-track", self._off_var, _ORANGE),
-            )
+        with ui.column().classes("w-full max-w-[1280px] mx-auto q-pa-md").style(
+            "gap: 12px; min-height: 100vh;"
         ):
-            cell = Frame(grid, bg=_ELEVATED)
-            cell.grid(row=0, column=i, padx=(0 if i == 0 else 6), sticky="nsew", ipady=2)
-            grid.columnconfigure(i, weight=1)
-            Label(cell, text=title, font=(_UI, 9), fg=_MUTED, bg=_ELEVATED).pack()
-            Label(cell, textvariable=var, font=(_UI, 13, "bold"), fg=color, bg=_ELEVATED).pack()
+            self._build_nav()
+            self._build_controls()
+            self._build_metrics()
+            self._build_progress()
+            self._build_graph()
+            self._build_main_split()
 
-        recent = RoundedCard(left, width=320, radius=18, fill=_CARD)
-        recent.pack(fill="both", expand=True)
-        Label(
-            recent.content,
-            text="LAST 5 EPISODES",
-            font=(_UI, 12, "bold"),
-            fg=_TEXT,
-            bg=_CARD,
-            anchor="w",
-        ).pack(fill="x", pady=(0, 6))
-        self._ep_labels: list[Label] = []
-        for _ in range(5):
-            lbl = Label(
-                recent.content, text="—", font=(_MONO, 10), fg=_DIM, bg=_CARD, anchor="w"
+    def _build_nav(self) -> None:
+        with ui.row().classes("w-full items-center justify-between").style(
+            "min-height: 48px;"
+        ):
+            with ui.row().classes("items-baseline").style("gap: 10px;"):
+                ui.label("Polyplex").style(
+                    f"font-size: 22px; font-weight: 700; color: {_LAVENDER_SOFT};"
+                )
+                ui.label("Training control").style(
+                    f"font-size: 13px; color: {_MUTED};"
+                )
+            self._live_pill = ui.badge("IDLE").props("rounded").style(
+                f"background: {_DIM}; color: {_TEXT}; font-weight: 700; "
+                "padding: 6px 14px; letter-spacing: 0.04em;"
             )
-            lbl.pack(fill="x", pady=2)
-            self._ep_labels.append(lbl)
 
-        right = RoundedCard(split, radius=20, fill=_CARD)
-        right.pack(side="left", fill="both", expand=True)
+    def _build_controls(self) -> None:
+        with ui.element("div").classes("poly-card w-full"):
+            ui.label("TRAINING").style(
+                f"font-size: 13px; font-weight: 700; color: {_TEXT};"
+            )
+            with ui.row().classes("w-full items-end flex-wrap").style(
+                "gap: 16px; margin-top: 12px;"
+            ):
+                self._num_envs_input = (
+                    ui.number("Envs", value=4, min=1, max=8, step=1)
+                    .props("dense outlined dark")
+                    .style("width: 96px;")
+                    .bind_value(self, "num_envs")
+                )
+                self._timesteps_input = (
+                    ui.number("Timesteps", value=1_000_000, min=10_000, max=10_000_000, step=50_000)
+                    .props("dense outlined dark")
+                    .style("width: 160px;")
+                    .bind_value(self, "timesteps")
+                )
+                ui.checkbox("Headless").props("dark dense").bind_value(self, "headless")
+                ui.checkbox("Watch env 0").props("dark dense").bind_value(self, "watch_live")
+                ui.checkbox("Dummy vec (debug)").props("dark dense").bind_value(
+                    self, "dummy_vec"
+                )
 
-        hdr = Frame(right.content, bg=_CARD)
-        hdr.pack(fill="x", pady=(0, 6))
-        Label(hdr, text="BEST RUNS", font=(_UI, 13, "bold"), fg=_TEXT, bg=_CARD).pack(
-            side="left"
-        )
-        Label(
-            hdr,
-            text=f"Double-click Watch · :{self._watch_port}",
-            font=(_UI, 9),
-            fg=_DIM,
-            bg=_CARD,
-        ).pack(side="right")
+            with ui.row().classes("w-full items-center").style(
+                "gap: 10px; margin-top: 14px;"
+            ):
+                self._start_btn = (
+                    ui.button("Start training", on_click=self._start_training)
+                    .props("unelevated no-caps")
+                    .style(
+                        f"background: {_LAVENDER} !important; color: {_BG} !important; "
+                        "font-weight: 700; border-radius: 999px; padding: 8px 20px;"
+                    )
+                )
+                ui.button("Stop training", on_click=self._stop_training).props(
+                    "unelevated no-caps"
+                ).style(
+                    f"background: {_RED} !important; color: {_BG} !important; "
+                    "font-weight: 700; border-radius: 999px; padding: 8px 20px;"
+                )
+                self._train_status = ui.label(
+                    "Idle — configure options, then Start."
+                ).style(f"color: {_LAVENDER_DIM}; font-size: 12px;")
 
-        style = ttk.Style()
-        try:
-            style.theme_use("clam")
-        except Exception:
-            pass
-        style.configure(
-            "Runs.Treeview",
-            background=_ELEVATED,
-            foreground=_TEXT,
-            fieldbackground=_ELEVATED,
-            borderwidth=0,
-            rowheight=28,
-            font=(_MONO, 10),
-        )
-        style.configure(
-            "Runs.Treeview.Heading",
-            background=_CARD,
-            foreground=_LAVENDER_DIM,
-            font=(_UI, 9, "bold"),
-            relief="flat",
-        )
-        style.map(
-            "Runs.Treeview",
-            background=[("selected", _LAVENDER)],
-            foreground=[("selected", _BG)],
-        )
+    def _build_metrics(self) -> None:
+        specs = [
+            ("fitness", "BEST DISTANCE", _GREEN),
+            ("reward", "BEST REWARD", _ORANGE),
+            ("mean", "MEAN DISTANCE", _LAVENDER),
+            ("steps", "TIMESTEPS", _LAVENDER_SOFT),
+            ("fps", "ROLLOUT FPS", _AMBER),
+        ]
+        with ui.row().classes("w-full").style("gap: 10px;"):
+            for key, title, accent in specs:
+                with ui.element("div").classes("poly-card").style(
+                    "flex: 1; min-width: 140px;"
+                ):
+                    ui.label(title).classes("poly-metric-title")
+                    val = ui.label("—").classes("poly-metric-value").style(
+                        f"color: {accent};"
+                    )
+                    sub = ui.label("").classes("poly-metric-sub")
+                    self._metric_values[key] = val
+                    self._metric_subs[key] = sub
 
-        cols = ("id", "tag", "dist", "reward", "cps", "outcome", "times")
-        tree_frame = Frame(right.content, bg=_CARD)
-        tree_frame.pack(fill="both", expand=True)
-        scroll = ttk.Scrollbar(tree_frame)
-        scroll.pack(side="right", fill="y")
-        self._tree = ttk.Treeview(
-            tree_frame,
-            columns=cols,
-            show="headings",
-            style="Runs.Treeview",
-            yscrollcommand=scroll.set,
-            selectmode="browse",
-        )
-        scroll.config(command=self._tree.yview)
-        headings = {
-            "id": ("#", 48),
-            "tag": ("Tag", 64),
-            "dist": ("Dist m", 72),
-            "reward": ("Reward", 72),
-            "cps": ("CPs", 48),
-            "outcome": ("Outcome", 90),
-            "times": ("CP times", 160),
-        }
-        for key, (label, w) in headings.items():
-            self._tree.heading(key, text=label)
-            self._tree.column(key, width=w, anchor="w", stretch=(key == "times"))
-        self._tree.pack(side="left", fill="both", expand=True)
-        self._tree.bind("<Double-1>", lambda _e: self._watch_selected())
-        self._tree.bind("<<TreeviewSelect>>", lambda _e: self._show_run_detail())
+    def _build_progress(self) -> None:
+        with ui.element("div").classes("poly-card w-full"):
+            with ui.row().classes("w-full items-center justify-between"):
+                self._progress_lbl = ui.label("Progress — not training").style(
+                    f"color: {_TEXT}; font-size: 13px; font-weight: 500;"
+                )
+                self._uptime_lbl = ui.label("").style(
+                    f"color: {_MUTED}; font-size: 12px;"
+                )
+            self._progress_bar = (
+                ui.linear_progress(value=0, show_value=False)
+                .props("rounded color=primary track-color=grey-9")
+                .classes("w-full")
+                .style("height: 8px; margin-top: 10px;")
+            )
 
-        self._detail_var = StringVar(value="Select a run to inspect or Watch.")
-        Label(
-            right.content,
-            textvariable=self._detail_var,
-            font=(_UI, 9),
-            fg=_MUTED,
-            bg=_CARD,
-            justify="left",
-            wraplength=600,
-            anchor="w",
-        ).pack(fill="x", pady=(8, 6))
+    def _build_graph(self) -> None:
+        with ui.column().classes("w-full").style("gap: 8px;"):
+            with ui.row().classes("w-full items-center justify-between"):
+                self._graph_toggle = (
+                    ui.button("▼  Progress graph", on_click=self._toggle_graph)
+                    .props("flat no-caps dense")
+                    .style(
+                        f"color: {_LAVENDER_SOFT}; font-weight: 700; font-size: 13px;"
+                    )
+                )
+                ui.label(
+                    "lavender = mean distance   ·   orange = mean reward"
+                ).style(f"color: {_DIM}; font-size: 12px;")
 
-        btn_row = Frame(right.content, bg=_CARD)
-        btn_row.pack(fill="x")
-        _pill_button(btn_row, "Watch selected run", self._watch_selected, primary=True).pack(
-            side="left"
+            self._graph_body = ui.element("div").classes("poly-card w-full")
+            with self._graph_body:
+                options = {
+                    "backgroundColor": "transparent",
+                    "animation": False,
+                    "grid": {
+                        "left": 48,
+                        "right": 16,
+                        "top": 20,
+                        "bottom": 28,
+                    },
+                    "tooltip": {"trigger": "axis"},
+                    "xAxis": {
+                        "type": "category",
+                        "data": [],
+                        "axisLabel": {"color": _DIM, "fontSize": 10},
+                        "axisLine": {"lineStyle": {"color": _BORDER}},
+                        "axisTick": {"show": False},
+                    },
+                    "yAxis": [
+                        {
+                            "type": "value",
+                            "scale": True,
+                            "axisLabel": {"color": _LAVENDER_DIM, "fontSize": 10},
+                            "splitLine": {"lineStyle": {"color": _BORDER}},
+                            "axisLine": {"show": False},
+                        },
+                        {
+                            "type": "value",
+                            "scale": True,
+                            "axisLabel": {"color": _ORANGE, "fontSize": 10},
+                            "splitLine": {"show": False},
+                            "axisLine": {"show": False},
+                        },
+                    ],
+                    "series": [
+                        {
+                            "name": "Mean distance",
+                            "type": "line",
+                            "smooth": True,
+                            "showSymbol": False,
+                            "data": [],
+                            "lineStyle": {"color": _LAVENDER, "width": 2.5},
+                            "areaStyle": {"color": f"{_LAVENDER}22"},
+                        },
+                        {
+                            "name": "Mean reward",
+                            "type": "line",
+                            "smooth": True,
+                            "showSymbol": False,
+                            "yAxisIndex": 1,
+                            "data": [],
+                            "lineStyle": {"color": _ORANGE, "width": 2.5},
+                        },
+                    ],
+                }
+                self._chart = ui.echart(options).classes("w-full").style(
+                    "height: 200px;"
+                )
+
+    def _build_main_split(self) -> None:
+        with ui.row().classes("w-full items-stretch").style("gap: 12px;"):
+            with ui.column().style("width: 320px; gap: 10px; flex-shrink: 0;"):
+                with ui.element("div").classes("poly-card w-full"):
+                    ui.label("OUTCOMES").style(
+                        f"font-size: 13px; font-weight: 700; color: {_TEXT}; "
+                        "margin-bottom: 8px;"
+                    )
+                    with ui.row().classes("w-full").style("gap: 8px;"):
+                        for key, title, color in (
+                            ("finishes", "Finishes", _GREEN),
+                            ("crashes", "Crashes", _RED),
+                            ("off_tracks", "Off-track", _ORANGE),
+                        ):
+                            with ui.element("div").classes("poly-elevated").style(
+                                "flex: 1; text-align: center; padding: 10px 6px;"
+                            ):
+                                ui.label(title).style(
+                                    f"font-size: 11px; color: {_MUTED};"
+                                )
+                                lbl = ui.label("0").style(
+                                    f"font-size: 16px; font-weight: 700; color: {color};"
+                                )
+                                self._outcome_values[key] = lbl
+
+                with ui.element("div").classes("poly-card w-full").style(
+                    "flex: 1;"
+                ):
+                    ui.label("LAST 5 EPISODES").style(
+                        f"font-size: 13px; font-weight: 700; color: {_TEXT}; "
+                        "margin-bottom: 8px;"
+                    )
+                    self._ep_labels = []
+                    for _ in range(5):
+                        lbl = ui.label("—").classes("poly-ep").style(
+                            f"color: {_DIM};"
+                        )
+                        self._ep_labels.append(lbl)
+
+            with ui.element("div").classes("poly-card").style(
+                "flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 8px;"
+            ):
+                with ui.row().classes("w-full items-center justify-between"):
+                    ui.label("BEST RUNS").style(
+                        f"font-size: 14px; font-weight: 700; color: {_TEXT};"
+                    )
+                    ui.label(
+                        f"Double-click Watch · :{self._watch_port}"
+                    ).style(f"font-size: 12px; color: {_DIM};")
+
+                columns = [
+                    {"name": "id", "label": "#", "field": "id", "align": "left"},
+                    {"name": "tag", "label": "Tag", "field": "tag", "align": "left"},
+                    {"name": "dist", "label": "Dist m", "field": "dist", "align": "left"},
+                    {
+                        "name": "reward",
+                        "label": "Reward",
+                        "field": "reward",
+                        "align": "left",
+                    },
+                    {"name": "cps", "label": "CPs", "field": "cps", "align": "left"},
+                    {
+                        "name": "outcome",
+                        "label": "Outcome",
+                        "field": "outcome",
+                        "align": "left",
+                    },
+                    {
+                        "name": "times",
+                        "label": "CP times",
+                        "field": "times",
+                        "align": "left",
+                    },
+                ]
+                self._runs_table = (
+                    ui.table(columns=columns, rows=[], row_key="key", selection="single")
+                    .props("dense dark flat separator=horizontal")
+                    .classes("w-full")
+                    .style("max-height: 360px;")
+                )
+                self._runs_table.on("rowClick", self._on_row_click)
+                self._runs_table.on("rowDblclick", self._on_row_dblclick)
+
+                self._detail_lbl = ui.label(
+                    "Select a run to inspect or Watch."
+                ).style(
+                    f"color: {_MUTED}; font-size: 12px; white-space: pre-wrap;"
+                )
+
+                with ui.row().classes("w-full items-center").style("gap: 10px;"):
+                    ui.button(
+                        "Watch selected run", on_click=self._watch_selected
+                    ).props("unelevated no-caps").style(
+                        f"background: {_LAVENDER} !important; color: {_BG} !important; "
+                        "font-weight: 700; border-radius: 999px; padding: 8px 18px;"
+                    )
+                    ui.button("Stop watch", on_click=self._stop_watch_btn).props(
+                        "outline no-caps color=primary"
+                    ).style(
+                        f"border-radius: 999px; padding: 8px 18px; color: {_LAVENDER_SOFT};"
+                    )
+                    self._watch_status = ui.label("").style(
+                        f"color: {_LAVENDER_DIM}; font-size: 12px;"
+                    )
+
+    def _toggle_graph(self) -> None:
+        self._graph_expanded = not self._graph_expanded
+        if self._graph_body is not None:
+            self._graph_body.set_visibility(self._graph_expanded)
+        if self._graph_toggle is not None:
+            self._graph_toggle.text = (
+                "▼  Progress graph" if self._graph_expanded else "▶  Progress graph"
+            )
+
+    def _set_live_pill(self, on: bool, text: str) -> None:
+        if self._live_pill is None:
+            return
+        self._live_pill.text = text
+        fill = _GREEN if on else _DIM
+        fg = _BG if on else _TEXT
+        self._live_pill.style(
+            f"background: {fill}; color: {fg}; font-weight: 700; "
+            "padding: 6px 14px; letter-spacing: 0.04em;"
         )
-        _pill_button(btn_row, "Stop watch", self._stop_watch_btn, primary=False).pack(
-            side="left", padx=(10, 0)
-        )
-        self._watch_status = StringVar(value="")
-        Label(
-            btn_row,
-            textvariable=self._watch_status,
-            font=(_UI, 9),
-            fg=_LAVENDER_DIM,
-            bg=_CARD,
-            anchor="w",
-        ).pack(side="left", padx=12, fill="x", expand=True)
 
     # ── Training start / stop ─────────────────────────────────────────
     def _build_train_cmd(self) -> list[str]:
-        n = max(1, min(8, int(self._num_envs.get())))
-        total = max(1000, int(self._timesteps.get()))
+        n = max(1, min(8, int(self.num_envs or 1)))
+        total = max(1000, int(self.timesteps or 1000))
         cmd = [
             sys.executable,
             "-u",
@@ -691,21 +537,22 @@ class TrainingMonitorGUI:
             "--total-timesteps",
             str(total),
         ]
-        if not self._headless.get():
+        if not self.headless:
             cmd.append("--headed")
-        elif self._watch_live.get():
+        elif self.watch_live:
             cmd.append("--watch")
-        if self._dummy_vec.get():
+        if self.dummy_vec:
             cmd.extend(["--vec-env", "dummy"])
         return cmd
 
     def _start_training(self) -> None:
         if self._train_proc is not None and self._train_proc.poll() is None:
-            self._train_status.set("Training already running.")
+            if self._train_status:
+                self._train_status.text = "Training already running."
             return
 
         cmd = self._build_train_cmd()
-        n = max(1, min(8, int(self._num_envs.get())))
+        n = max(1, min(8, int(self.num_envs or 1)))
         env = {
             **os.environ,
             "POLYTRACK_FROM_GUI": "1",
@@ -714,7 +561,6 @@ class TrainingMonitorGUI:
         }
         try:
             if sys.platform == "win32":
-                # Visible cmd window — training logs print there.
                 self._train_proc = subprocess.Popen(
                     cmd,
                     cwd=str(_ROOT),
@@ -724,21 +570,20 @@ class TrainingMonitorGUI:
                         | getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)
                     ),
                 )
+                self._train_via_terminal = False
             elif sys.platform == "darwin":
-                import json as _json
                 import shlex
 
                 joined = " ".join(shlex.quote(c) for c in cmd)
                 script = f"cd {shlex.quote(str(_ROOT))} && {joined}"
-                # One Terminal tab only (do not also Popen the same cmd).
                 osa = subprocess.Popen(
                     [
                         "osascript",
                         "-e",
-                        f"tell application \"Terminal\" to do script {_json.dumps(script)}",
+                        f'tell application "Terminal" to do script {json.dumps(script)}',
                     ]
                 )
-                self._train_proc = osa  # Stop may only kill osascript; use pkill fallback
+                self._train_proc = osa
                 self._train_via_terminal = True
             else:
                 from shutil import which
@@ -758,25 +603,27 @@ class TrainingMonitorGUI:
                     )
                 self._train_via_terminal = False
 
-            if sys.platform == "win32":
-                self._train_via_terminal = False
-
-            mode = "headed" if not self._headless.get() else (
-                "watch-0" if self._watch_live.get() else "headless"
+            mode = (
+                "headed"
+                if not self.headless
+                else ("watch-0" if self.watch_live else "headless")
             )
             pid = self._train_proc.pid if self._train_proc else "?"
-            self._train_status.set(
-                f"Training started in a terminal window · {n} envs · {mode} · pid {pid}"
-            )
+            if self._train_status:
+                self._train_status.text = (
+                    f"Training started in a terminal window · {n} envs · {mode} · pid {pid}"
+                )
             self._set_live_pill(True, "TRAINING")
-            self._start_btn.config(state="disabled")
+            if self._start_btn is not None:
+                self._start_btn.disable()
         except Exception as exc:
-            self._train_status.set(f"Failed to start: {exc}")
+            if self._train_status:
+                self._train_status.text = f"Failed to start: {exc}"
 
     def _stop_training(self) -> None:
         proc = self._train_proc
-        self._train_status.set("Stopping training…")
-        self._root.update_idletasks()
+        if self._train_status:
+            self._train_status.text = "Stopping training…"
         try:
             if sys.platform == "win32":
                 if proc is not None and proc.poll() is None:
@@ -786,7 +633,6 @@ class TrainingMonitorGUI:
                         check=False,
                     )
             else:
-                # Kill train processes started from this project.
                 subprocess.run(
                     ["pkill", "-f", str(_ROOT / "run_local_training.py")],
                     capture_output=True,
@@ -806,59 +652,50 @@ class TrainingMonitorGUI:
                 except (subprocess.TimeoutExpired, Exception):
                     pass
         except Exception as exc:
-            self._train_status.set(f"Stop error: {exc}")
+            if self._train_status:
+                self._train_status.text = f"Stop error: {exc}"
             return
         self._train_proc = None
         self._train_via_terminal = False
-        self._start_btn.config(state="normal")
+        if self._start_btn is not None:
+            self._start_btn.enable()
         self._set_live_pill(False, "STOPPED")
-        self._train_status.set("Training stopped.")
+        if self._train_status:
+            self._train_status.text = "Training stopped."
 
     def _check_train_proc(self) -> None:
         if self._train_proc is None:
             return
-        # Terminal-launched jobs: osascript exits immediately — keep "TRAINING"
-        # until user hits Stop or live JSON stops updating for a long time.
         if self._train_via_terminal:
             return
         code = self._train_proc.poll()
         if code is None:
             return
         if code == 0:
-            self._train_status.set("Training finished.")
+            if self._train_status:
+                self._train_status.text = "Training finished."
             self._set_live_pill(False, "DONE")
         else:
-            self._train_status.set(f"Training exited (code {code}). Check the terminal window.")
+            if self._train_status:
+                self._train_status.text = (
+                    f"Training exited (code {code}). Check the terminal window."
+                )
             self._set_live_pill(False, "ERROR")
         self._train_proc = None
-        self._start_btn.config(state="normal")
+        if self._start_btn is not None:
+            self._start_btn.enable()
 
     # ── Live metrics ──────────────────────────────────────────────────
-    def _set_live_pill(self, on: bool, text: str) -> None:
-        c = self._live_canvas
-        c.delete("all")
-        fill = _GREEN if on else _DIM
-        _round_rect(c, 2, 2, 94, 26, 12, fill=fill, outline="")
-        c.create_text(48, 14, text=text, fill=_BG if on else _TEXT, font=(_UI, 8, "bold"))
-
-    def _redraw_progress(self, _e: object | None = None) -> None:
-        w = max(1, self._prog_canvas.winfo_width())
-        self._prog_canvas.coords(self._prog_fill, 0, 0, int(w * self._prog_frac), 8)
-
     def _poll(self) -> None:
         self._refresh_metrics()
         self._refresh_runs()
         self._check_watch_proc()
         self._check_train_proc()
-        self._root.after(self._poll_ms, self._poll)
 
     def _refresh_metrics(self) -> None:
         try:
             data: dict = json.loads(self._json_path.read_text(encoding="utf-8"))
         except (OSError, json.JSONDecodeError):
-            if self._train_proc is None or self._train_proc.poll() is not None:
-                if self._train_proc is None:
-                    pass
             return
 
         training = self._train_proc is not None and self._train_proc.poll() is None
@@ -868,34 +705,39 @@ class TrainingMonitorGUI:
         ts = int(data.get("timesteps", 0))
         total = max(1, int(data.get("total_timesteps", 1)))
         frac = ts / total
-        self._prog_frac = frac
-        self._redraw_progress()
-        self._progress_lbl.set(f"Progress  {ts:,} / {total:,}  ({100 * frac:.1f}%)")
-        self._uptime_lbl.set(
-            f"Uptime {_fmt_hms(data.get('uptime_s', 0))}  ·  "
-            f"episodes {int(data.get('episodes', 0))}"
-        )
+        if self._progress_bar is not None:
+            self._progress_bar.value = frac
+        if self._progress_lbl is not None:
+            self._progress_lbl.text = (
+                f"Progress  {ts:,} / {total:,}  ({100 * frac:.1f}%)"
+            )
+        if self._uptime_lbl is not None:
+            self._uptime_lbl.text = (
+                f"Uptime {_fmt_hms(data.get('uptime_s', 0))}  ·  "
+                f"episodes {int(data.get('episodes', 0))}"
+            )
 
         best_fit = float(data.get("best_fitness", data.get("best_fitness_m", 0)))
         mean_fit = float(data.get("mean_fitness_10ep", 0))
         best_rew = float(data.get("best_reward", 0))
-        self._card_fitness.value.set(f"{best_fit:.1f}")
-        self._card_fitness.sub.set("metres · all-time")
-        self._card_reward.value.set(f"{best_rew:+.2f}")
-        self._card_reward.sub.set("episode reward · all-time")
-        self._card_mean.value.set(f"{mean_fit:.1f}")
-        self._card_mean.sub.set("metres · last 10")
-        self._card_steps.value.set(f"{ts // 1000}k" if ts >= 1000 else str(ts))
-        self._card_steps.sub.set(f"of {total:,}")
-        self._card_fps.value.set(f"{float(data.get('fps', 0)):.0f}")
-        self._card_fps.sub.set("env steps / s")
 
-        self._fin_var.set(str(int(data.get("finishes", 0))))
-        self._crash_var.set(str(int(data.get("crashes", 0))))
-        self._off_var.set(str(int(data.get("off_tracks", 0))))
+        self._metric_values["fitness"].text = f"{best_fit:.1f}"
+        self._metric_subs["fitness"].text = "metres · all-time"
+        self._metric_values["reward"].text = f"{best_rew:+.2f}"
+        self._metric_subs["reward"].text = "episode reward · all-time"
+        self._metric_values["mean"].text = f"{mean_fit:.1f}"
+        self._metric_subs["mean"].text = "metres · last 10"
+        self._metric_values["steps"].text = f"{ts // 1000}k" if ts >= 1000 else str(ts)
+        self._metric_subs["steps"].text = f"of {total:,}"
+        self._metric_values["fps"].text = f"{float(data.get('fps', 0)):.0f}"
+        self._metric_subs["fps"].text = "env steps / s"
+
+        self._outcome_values["finishes"].text = str(int(data.get("finishes", 0)))
+        self._outcome_values["crashes"].text = str(int(data.get("crashes", 0)))
+        self._outcome_values["off_tracks"].text = str(int(data.get("off_tracks", 0)))
 
         hist = data.get("history") or {}
-        self._graph.update_history(hist)
+        self._update_chart(hist)
 
         last5 = data.get("last5", [])
         for i, lbl in enumerate(self._ep_labels):
@@ -904,16 +746,28 @@ class TrainingMonitorGUI:
                 outcome = str(e.get("outcome", "?"))
                 color = _OUTCOME_COLORS.get(outcome, _MUTED)
                 fit = float(e.get("fitness", 0))
-                lbl.config(
-                    text=(
-                        f"ep {int(e['ep']):3d}  dist {fit:5.1f}m  "
-                        f"r {float(e['reward']):+.1f}  "
-                        f"cp {int(e['checkpoints'])}  {outcome}"
-                    ),
-                    fg=color,
+                lbl.text = (
+                    f"ep {int(e['ep']):3d}  dist {fit:5.1f}m  "
+                    f"r {float(e['reward']):+.1f}  "
+                    f"cp {int(e['checkpoints'])}  {outcome}"
                 )
+                lbl.style(f"color: {color};")
             else:
-                lbl.config(text="—", fg=_DIM)
+                lbl.text = "—"
+                lbl.style(f"color: {_DIM};")
+
+    def _update_chart(self, hist: dict) -> None:
+        if self._chart is None:
+            return
+        fit = [float(x) for x in (hist.get("mean_fitness") or [])]
+        rew = [float(x) for x in (hist.get("mean_reward") or [])]
+        ts = [int(x) for x in (hist.get("timesteps") or [])]
+        labels = [f"{t:,}" for t in ts] if ts else [str(i) for i in range(len(fit))]
+        opts = self._chart.options
+        opts["xAxis"]["data"] = labels
+        opts["series"][0]["data"] = fit
+        opts["series"][1]["data"] = rew
+        self._chart.update()
 
     def _refresh_runs(self) -> None:
         try:
@@ -923,55 +777,65 @@ class TrainingMonitorGUI:
             runs: list = runs_raw
         except (OSError, json.JSONDecodeError):
             return
-        if runs == self._runs:
+        if runs == self._runs or self._runs_table is None:
             return
-        sel = self._tree.selection()
-        sel_id = sel[0] if sel else None
         self._runs = runs
-        self._tree.delete(*self._tree.get_children())
+        rows: list[dict[str, Any]] = []
         for r in runs:
             kind = r.get("kind", "?")
             tag = "★ ALL" if kind == "all_time" else f"g{r.get('generation', 0)}"
-            iid = str(r.get("id", len(self._tree.get_children())))
+            rid = int(r.get("id", 0))
             dist = float(r.get("distance_m", r.get("fitness", 0)))
-            self._tree.insert(
-                "",
-                "end",
-                iid=iid,
-                values=(
-                    f"#{r.get('id', 0):03d}",
-                    tag,
-                    f"{dist:.0f}",
-                    f"{float(r.get('reward', 0)):+.2f}",
-                    int(r.get("checkpoints", 0)),
-                    str(r.get("outcome", "?")),
-                    _fmt_cp_times(r.get("checkpoint_times") or []),
-                ),
+            rows.append(
+                {
+                    "key": rid,
+                    "id": f"#{rid:03d}",
+                    "tag": tag,
+                    "dist": f"{dist:.0f}",
+                    "reward": f"{float(r.get('reward', 0)):+.2f}",
+                    "cps": int(r.get("checkpoints", 0)),
+                    "outcome": str(r.get("outcome", "?")),
+                    "times": _fmt_cp_times(r.get("checkpoint_times") or []),
+                }
             )
-        if sel_id and self._tree.exists(sel_id):
-            self._tree.selection_set(sel_id)
+        self._runs_table.rows = rows
+        self._runs_table.update()
 
     # ── Best-run watch ────────────────────────────────────────────────
-    def _selected_run(self) -> dict | None:
-        sel = self._tree.selection()
-        if not sel:
-            return None
+    def _on_row_click(self, e: Any) -> None:
         try:
-            rid = int(sel[0])
-        except ValueError:
-            return None
+            row = e.args[1]
+            self._selected_run_id = int(row["key"])
+        except (KeyError, TypeError, ValueError, IndexError):
+            return
+        self._show_run_detail()
+
+    def _on_row_dblclick(self, e: Any) -> None:
+        self._on_row_click(e)
+        self._watch_selected()
+
+    def _selected_run(self) -> dict | None:
+        if self._selected_run_id is None:
+            # Fall back to NiceGUI selection
+            if self._runs_table is not None and self._runs_table.selected:
+                try:
+                    self._selected_run_id = int(self._runs_table.selected[0]["key"])
+                except (KeyError, TypeError, ValueError, IndexError):
+                    return None
+            else:
+                return None
         for r in self._runs:
-            if int(r.get("id", -1)) == rid:
+            if int(r.get("id", -1)) == self._selected_run_id:
                 return r
         return None
 
     def _show_run_detail(self) -> None:
         run = self._selected_run()
-        if run is None:
+        if run is None or self._detail_lbl is None:
             return
         times = _fmt_cp_times(run.get("checkpoint_times") or [])
         dist = float(run.get("distance_m", run.get("fitness", 0)))
-        self._detail_var.set(
+        self._detail_lbl.text = (
             f"#{run.get('id')}  gen={run.get('generation')}  "
             f"kind={run.get('kind')}  outcome={run.get('outcome')}\n"
             f"distance={dist:.1f} m  reward={float(run.get('reward', 0)):+.2f}  "
@@ -998,8 +862,10 @@ class TrainingMonitorGUI:
         if _port_open(self._watch_port):
             return True
         if self._server_proc is None or self._server_proc.poll() is not None:
-            self._watch_status.set(f"Starting game server on :{self._watch_port}…")
-            self._root.update_idletasks()
+            if self._watch_status:
+                self._watch_status.text = (
+                    f"Starting game server on :{self._watch_port}…"
+                )
             try:
                 kw: dict = {
                     "cwd": str(_ROOT),
@@ -1018,17 +884,19 @@ class TrainingMonitorGUI:
                     **kw,
                 )
             except Exception as exc:
-                self._watch_status.set(f"Server failed: {exc}")
+                if self._watch_status:
+                    self._watch_status.text = f"Server failed: {exc}"
                 return False
         for _ in range(50):
             if _port_open(self._watch_port):
                 return True
             if self._server_proc is not None and self._server_proc.poll() is not None:
-                self._watch_status.set("start_server.py exited early")
+                if self._watch_status:
+                    self._watch_status.text = "start_server.py exited early"
                 return False
             time.sleep(0.12)
-            self._root.update_idletasks()
-        self._watch_status.set("Timed out waiting for game server")
+        if self._watch_status:
+            self._watch_status.text = "Timed out waiting for game server"
         return False
 
     def _stop_watch(self) -> None:
@@ -1048,7 +916,8 @@ class TrainingMonitorGUI:
 
     def _stop_watch_btn(self) -> None:
         self._stop_watch()
-        self._watch_status.set("Watch stopped.")
+        if self._watch_status:
+            self._watch_status.text = "Watch stopped."
 
     def _preflight_model(self, model_path: Path) -> str | None:
         if not model_path.exists():
@@ -1058,8 +927,10 @@ class TrainingMonitorGUI:
                 names = set(zf.namelist())
         except zipfile.BadZipFile:
             return f"Corrupt zip: {model_path.name}"
-        if "data" not in names and "policy.pth" not in names and not any(
-            n.endswith(".pth") for n in names
+        if (
+            "data" not in names
+            and "policy.pth" not in names
+            and not any(n.endswith(".pth") for n in names)
         ):
             return f"Not an SB3 checkpoint: {model_path.name}"
         return None
@@ -1078,7 +949,8 @@ class TrainingMonitorGUI:
     def _watch_selected(self) -> None:
         run = self._selected_run()
         if run is None:
-            self._watch_status.set("Select a run first.")
+            if self._watch_status:
+                self._watch_status.text = "Select a run first."
             return
         model_rel = str(run.get("model_path") or "")
         model_path = self._resolve_model(model_rel)
@@ -1087,11 +959,13 @@ class TrainingMonitorGUI:
             if fallback.exists():
                 model_path = fallback
             else:
-                self._watch_status.set(f"Model missing: {model_rel}")
+                if self._watch_status:
+                    self._watch_status.text = f"Model missing: {model_rel}"
                 return
         err = self._preflight_model(model_path)
         if err:
-            self._watch_status.set(err)
+            if self._watch_status:
+                self._watch_status.text = err
             return
         if self._watch_proc is not None and self._watch_proc.poll() is None:
             self._stop_watch()
@@ -1118,23 +992,29 @@ class TrainingMonitorGUI:
             log_f.write(f"$ {' '.join(cmd)}\n\n")
             log_f.flush()
             self._watch_log_handle = log_f
-            kw: dict = {"cwd": str(_ROOT), "stdout": log_f, "stderr": subprocess.STDOUT}
+            kw: dict = {
+                "cwd": str(_ROOT),
+                "stdout": log_f,
+                "stderr": subprocess.STDOUT,
+            }
             if sys.platform == "win32":
                 kw["creationflags"] = getattr(subprocess, "CREATE_NO_WINDOW", 0)
             self._watch_proc = subprocess.Popen(cmd, **kw)
-            self._watch_status.set(
-                f"Watching #{run.get('id')} — Chromium opens after model load…"
-            )
+            if self._watch_status:
+                self._watch_status.text = (
+                    f"Watching #{run.get('id')} — Chromium opens after model load…"
+                )
         except Exception as exc:
-            self._watch_status.set(f"Failed: {exc}")
+            if self._watch_status:
+                self._watch_status.text = f"Failed: {exc}"
 
     def _check_watch_proc(self) -> None:
         if self._watch_proc is None:
             return
         if self._watch_proc.poll() is None:
             tip = self._tail_watch_log()
-            if tip and not tip.startswith("$"):
-                self._watch_status.set(tip)
+            if tip and not tip.startswith("$") and self._watch_status:
+                self._watch_status.text = tip
             return
         code = self._watch_proc.poll()
         if self._watch_log_handle is not None:
@@ -1143,11 +1023,12 @@ class TrainingMonitorGUI:
             except OSError:
                 pass
             self._watch_log_handle = None
-        if code == 0:
-            self._watch_status.set("Watch finished.")
-        else:
-            tip = self._tail_watch_log() or f"exit {code}"
-            self._watch_status.set(f"Watch failed: {tip}")
+        if self._watch_status:
+            if code == 0:
+                self._watch_status.text = "Watch finished."
+            else:
+                tip = self._tail_watch_log() or f"exit {code}"
+                self._watch_status.text = f"Watch failed: {tip}"
         self._watch_proc = None
 
     def _on_close(self) -> None:
@@ -1156,28 +1037,43 @@ class TrainingMonitorGUI:
         self._stop_watch()
         if self._server_proc is not None and self._server_proc.poll() is None:
             self._server_proc.terminate()
-        self._root.destroy()
 
 
 def main() -> None:
+    global _CLI_ARGS
     p = argparse.ArgumentParser(description="Polyplex training control GUI.")
     p.add_argument("--json-path", type=Path, default=_DEFAULT_JSON)
     p.add_argument("--runs-path", type=Path, default=_DEFAULT_RUNS)
     p.add_argument("--poll-ms", type=int, default=1500)
     p.add_argument("--watch-port", type=int, default=_WATCH_PORT)
+    p.add_argument("--port", type=int, default=8088, help="NiceGUI server port")
+    p.add_argument(
+        "--no-open",
+        action="store_true",
+        help="Do not auto-open the browser",
+    )
     args = p.parse_args()
-    try:
-        root = Tk()
-        TrainingMonitorGUI(
-            root, args.json_path, args.runs_path, args.poll_ms, args.watch_port
+    _CLI_ARGS = args
+
+    @ui.page("/")
+    def _index() -> None:
+        assert _CLI_ARGS is not None
+        TrainingMonitorApp(
+            _CLI_ARGS.json_path,
+            _CLI_ARGS.runs_path,
+            _CLI_ARGS.poll_ms,
+            _CLI_ARGS.watch_port,
         )
-        root.mainloop()
-    except Exception:
-        import traceback
 
-        traceback.print_exc()
-        raise
+    ui.run(
+        title="Polyplex — Training Control",
+        port=args.port,
+        reload=False,
+        show=not args.no_open,
+        dark=True,
+        favicon="🏁",
+    )
 
 
-if __name__ == "__main__":
+if __name__ in {"__main__", "__mp_main__"}:
     main()

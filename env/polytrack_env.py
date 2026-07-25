@@ -32,11 +32,23 @@ READY_TIMEOUT_S = float(os.environ.get("POLYTRACK_READY_TIMEOUT_S", "300"))
 # Hard episode cap: 30s wall-clock from reset (also ends if in-game timer hits 30s).
 EPISODE_TIME_LIMIT_S = 30.0
 MAX_CRASHES = 3
-# Off-track → terminate + double-KeyR. Keep this *loose* — open track / jumps
-# must not false-trigger (no wall-clear heuristic; that fired on-track).
+OFFTRACK_PENALTY = 1.0        # reward penalty applied once on the off-track termination step
+
+# --- Off-track detection thresholds ---
+# Void: instant terminate if the car falls below this Y.
 Y_VOID = -20.0
-AIRBORNE_OFFTRACK_STEPS = 30  # ~1.5 s freefall with no ground under car
-GROUND_MISS = 95.0
+# Detector A — downward support miss streak:
+#   JS fires 5 short downward rays (centre + F/B/L/R 2 m) from y+2, range 25 m.
+#   If all 5 miss for OFFTRACK_MISS_STEPS consecutive steps (~1.2 s) → off track.
+OFFTRACK_MISS_STEPS = 24
+# Detector B — horizontal wall-ray all-clear streak:
+#   All 6 wall rays >= WALL_ALL_CLEAR for WALL_MISS_STEPS consecutive steps (~2 s) → off track.
+#   On-track sections always have at least one nearby wall/barrier; open void has none.
+WALL_ALL_CLEAR = 60.0
+WALL_MISS_STEPS = 40
+# Post-checkpoint grace: ignore both detectors for this many steps after a new CP.
+CP_GRACE_STEPS = 20
+
 PI_F = float(np.pi)
 DEFAULT_TRACK_MENU_INDEX = 0
 RESET_RETRIES = int(os.environ.get("POLYTRACK_RESET_RETRIES", "2"))
@@ -101,9 +113,12 @@ class PolytrackEnv(gym.Env):
         self._checkpoint_times: list[float] = []
         self._finish_scored: bool = False
         self._horiz_distance: float = 0.0
-        self._airborne_steps: int = 0
         self._episode_steps: int = 0
         self._episode_t0: float = 0.0
+        # Off-track streak counters (reset each episode and on CP grace).
+        self._support_miss_streak: int = 0   # consecutive steps with track_support == 0
+        self._wall_miss_streak: int = 0       # consecutive steps with all wall rays clear
+        self._cp_grace_steps: int = 0         # remaining grace steps after a checkpoint
         # Track whether the last episode ended via has_finished (needs FinishDebug recovery).
         self._last_episode_finished: bool = False
 
@@ -194,6 +209,7 @@ class PolytrackEnv(gym.Env):
         fitness_delta: float,
         crashed: bool,
         *,
+        off_track: bool = False,
         new_checkpoints: int = 0,
     ) -> float:
         """Favor distance travelled + speed; penalise walls/crashes/off-track."""
@@ -218,7 +234,10 @@ class PolytrackEnv(gym.Env):
                 closeness = 1.0 - min_wall / WALL_WARN_DIST
                 r -= closeness * 0.12
 
-        if crashed:
+        # Termination penalties — off-track and crash are mutually exclusive in priority.
+        if off_track:
+            r -= OFFTRACK_PENALTY
+        elif crashed:
             r -= 1.0
 
         r -= 0.001  # small per-step time cost (pressure to not dawdle)
@@ -240,37 +259,71 @@ class PolytrackEnv(gym.Env):
                 self._horiz_distance += step_d
         self._last_xz = (x, z)
 
-    def _check_off_track(self, s: dict[str, Any]) -> bool:
-        """True only for clear void / long freefall — not jumps or open track.
+    def _check_off_track(self, s: dict[str, Any]) -> tuple[bool, str]:
+        """Return (off_track, reason) using two complementary detectors.
 
-        On detect: episode terminates and double-KeyR runs immediately in step().
+        Detector A — downward support miss streak:
+            JS fires 5 short downward rays (centre + F/B/L/R 2 m).
+            If track_support == 0 for OFFTRACK_MISS_STEPS consecutive steps → off track.
+            Jumps still have mesh below them so they won't sustain a full streak.
+
+        Detector B — wall-ray all-clear streak (lateral / forward departure):
+            All 6 horizontal wall rays >= WALL_ALL_CLEAR for WALL_MISS_STEPS steps.
+            On a real track section at least one ray always hits a wall/barrier.
+            Only active after horiz_distance > 10 m (rays unstable at reset).
+
+        Both detectors are suppressed for CP_GRACE_STEPS after a new checkpoint.
+        Void (y < Y_VOID) is an instant terminate regardless of grace.
         """
         if not s.get("has_started"):
-            self._airborne_steps = 0
-            return False
+            self._support_miss_streak = 0
+            self._wall_miss_streak = 0
+            return False, ""
 
         try:
             y = float(s["position"]["y"])
         except (KeyError, TypeError, ValueError):
             y = 0.0
 
-        # Deep void only (open road / small dips must not trip this).
-        if y < Y_VOID:
-            return True
-        if bool(s.get("off_track")):
-            return True
+        # JS void hint — instant, no grace needed.
+        if y < Y_VOID or bool(s.get("off_track")):
+            return True, f"void(y={y:.1f})"
 
-        airborne = bool(s.get("airborne"))
-        ground = float(s.get("ground_dist") or MAX_RAY_DIST)
-        if airborne:
-            self._airborne_steps += 1
+        # Post-checkpoint grace: don't count either streak.
+        if self._cp_grace_steps > 0:
+            self._cp_grace_steps -= 1
+            self._support_miss_streak = 0
+            self._wall_miss_streak = 0
+            return False, ""
+
+        # --- Detector A: downward support ---
+        track_support = int(s.get("track_support") or 0)
+        if track_support == 0:
+            self._support_miss_streak += 1
         else:
-            self._airborne_steps = 0
+            self._support_miss_streak = 0
 
-        # Long freefall with nothing under the car (jumps still have ground_dist).
-        if self._airborne_steps >= AIRBORNE_OFFTRACK_STEPS and ground >= GROUND_MISS:
-            return True
-        return False
+        if self._support_miss_streak >= OFFTRACK_MISS_STEPS:
+            return True, f"support_miss_streak={self._support_miss_streak}"
+
+        # --- Detector B: wall-ray all-clear ---
+        if self._horiz_distance > 10.0:
+            raw_walls: list[float] = s.get("wall_dists") or []
+            all_clear = (
+                len(raw_walls) == 6
+                and all(float(d) >= WALL_ALL_CLEAR for d in raw_walls)
+            )
+            if all_clear:
+                self._wall_miss_streak += 1
+            else:
+                self._wall_miss_streak = 0
+
+            if self._wall_miss_streak >= WALL_MISS_STEPS:
+                return True, f"wall_all_clear_streak={self._wall_miss_streak}"
+        else:
+            self._wall_miss_streak = 0
+
+        return False, ""
 
     async def _press_reset_keys(self) -> None:
         """Double-tap KeyR — Polytrack often needs two presses to respawn on track."""
@@ -387,7 +440,9 @@ class PolytrackEnv(gym.Env):
         self._checkpoint_times = []
         self._finish_scored = False
         self._horiz_distance = 0.0
-        self._airborne_steps = 0
+        self._support_miss_streak = 0
+        self._wall_miss_streak = 0
+        self._cp_grace_steps = 0
         self._episode_steps = 0
         self._episode_t0 = time.monotonic()
         self._last_episode_finished = False
@@ -440,13 +495,15 @@ class PolytrackEnv(gym.Env):
             self._crash_count += 1
         if cp > cp_prev:
             self._checkpoint_hits += cp - cp_prev
+            # Grant a grace window so detectors don't fire right after a checkpoint.
+            self._cp_grace_steps = CP_GRACE_STEPS
 
         self._update_horiz_distance(s)
         new_cps = self._record_checkpoint_times(s, cp_prev, cp)
         fitness_delta = self._update_fitness()
-        off_track = self._check_off_track(s)
+        off_track, off_reason = self._check_off_track(s)
         rew = self._reward(
-            s, fitness_delta, crashed or off_track, new_checkpoints=new_cps
+            s, fitness_delta, crashed, off_track=off_track, new_checkpoints=new_cps
         )
         obs = self._obs_from_state(s, STEP_WAIT_S)
 
@@ -473,9 +530,12 @@ class PolytrackEnv(gym.Env):
                 self._run(self._press_reset_keys())
             except Exception as exc:
                 print(f"[polytrack_env] off-track KeyR failed: {exc}", flush=True)
+            supp = int(s.get("track_support") or 0)
+            walls = s.get("wall_dists") or []
             print(
-                f"[polytrack_env] OFF-TRACK → episode end + double KeyR "
-                f"(dist={self._horiz_distance:.1f}m steps={self._episode_steps})",
+                f"[polytrack_env] OFF-TRACK ({off_reason}) -> episode end + double KeyR "
+                f"dist={self._horiz_distance:.1f}m steps={self._episode_steps} "
+                f"support={supp} walls={[round(float(d),1) for d in walls]}",
                 flush=True,
             )
 

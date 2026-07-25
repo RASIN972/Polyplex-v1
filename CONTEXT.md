@@ -146,7 +146,7 @@ reward += 0.5 * new_checkpoints                # small bonus if a CP is hit
 if min(wall_dists) < 15.0:
     closeness = 1.0 - min_wall / 15.0
     reward -= closeness * 0.12
-reward -= 1.0   # if crashed_or_reset OR off_track
+reward -= 1.0   # if off_track (OFFTRACK_PENALTY) OR crashed_or_reset (separate flags)
 reward -= 0.001 # per-step time cost
 # +2.0 once on finish (does not change distance fitness)
 ```
@@ -154,10 +154,12 @@ reward -= 0.001 # per-step time cost
 ## Horizontal distance + off-track
 
 - **`distance_m`:** cumulative XZ path length (vertical jump motion ignored; teleport spikes > 40 m discarded).
-- **Off-track → terminate** (`outcome="off_track"`), then soft KeyR on next reset. Jump-safe:
-  - Void: car `y < -25` (or JS hint `off_track`)
-  - Sustained freefall: airborne ≥ ~1.75 s **and** downward ground ray misses track (`ground_dist` ≈ max)
-  - Mid-jump over track: airborne but ground ray still hits mesh → **not** off-track
+- **Off-track → terminate** (`outcome="off_track"`), immediate double-KeyR in `step()`, then `reset()` starts a new run.
+  - **Void** (instant): car `y < Y_VOID (-20)` or JS `off_track` hint (void only, no checkpoint-distance term).
+  - **Detector A — downward support miss**: JS fires 5 short downward rays (centre + F/B/L/R 2 m, range 25 m). If `track_support == 0` for ≥ 24 consecutive steps (~1.2 s) → off track. Jumps still hit mesh below, so short air-time won't trigger.
+  - **Detector B — wall-ray all-clear**: All 6 horizontal wall rays ≥ 60 m for ≥ 40 consecutive steps (~2 s) → off track (car left track sideways). Only active after 10 m of horizontal distance. Any single ray < 60 resets the streak.
+  - **Post-CP grace**: both streak detectors are suppressed for 20 steps (~1 s) after a new checkpoint to avoid false positives right after a CP transition.
+  - Log line on off-track includes which detector fired, `track_support`, and `wall_dists`.
 
 ## Episode termination (`PolytrackEnv.step`)
 
@@ -208,7 +210,7 @@ Default training: CPU. ROCm example: `pip install torch --index-url https://down
 
 **Phase 1 — complete:** `GameBridge` (injection, `get_state`, `send_action`, `reset` = KeyR), `restart_session` (full browser recycle), `start_track_menu_index`, `FinishDebugGameBridge` / `debug_finish_repro.py` for DOM-heavy debugging. `test_game_bridge` smoke test.
 
-**Phase 2 — complete:** `env/polytrack_env.py` — `PolytrackEnv(gymnasium.Env)`, `port` constructor arg, **9-d** lean obs / 9 discrete actions, step cadence ~50 ms, 30 s episodes, **horizontal-distance fitness**, jump-aware off-track reset.
+**Phase 2 — complete:** `env/polytrack_env.py` — `PolytrackEnv(gymnasium.Env)`, `port` constructor arg, **9-d** lean obs / 9 discrete actions, step cadence ~50 ms, 30 s episodes, **horizontal-distance fitness**, dual-detector off-track (downward support miss + wall-ray all-clear streak + void + CP grace).
 
 **Phase 3 — script:** `training/train_ppo.py` — `Monitor` + **`SubprocVecEnv`** (default **4** envs) or `--vec-env dummy`; PPO (`ent_coef=0.02`, …), `EliteFitnessCallback` → `checkpoints/best_model.zip`, periodic checkpoints every 50k, `TrainingMonitor`. Preferred UI: **`python start_gui.py`** — start/stop training, num-envs / headless / watch, collapsible progress graph, best-run Watch. Env exposes `info["fitness"]`, `info["distance_m"]`, `info["outcome"]`, `info["checkpoints"]`. Logs: `logs/training_gui.log`, `logs/watch_run.log`.
 

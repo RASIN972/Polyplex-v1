@@ -8,3 +8,4 @@ stable-baselines3>=2.3.0
 tensorboard>=2.14.0
 playwright>=1.41.0
 torch>=2.2.0
+nicegui>=2.5.0
