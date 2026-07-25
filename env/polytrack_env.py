@@ -31,6 +31,10 @@ OBS_SIZE = 9
 READY_TIMEOUT_S = float(os.environ.get("POLYTRACK_READY_TIMEOUT_S", "300"))
 EPISODE_TIME_LIMIT_S = 30.0
 MAX_CRASHES = 3
+# Off-track / void (jumps allowed): terminate after sustained freefall with no track below.
+Y_VOID = -25.0
+AIRBORNE_OFFTRACK_STEPS = 35  # ~1.75 s at 50 ms/step — jumps are much shorter
+GROUND_MISS = 95.0            # ground_dist near MAX_RAY_DIST ⇒ no track under car
 PI_F = float(np.pi)
 DEFAULT_TRACK_MENU_INDEX = 0
 RESET_RETRIES = int(os.environ.get("POLYTRACK_RESET_RETRIES", "2"))
@@ -83,16 +87,19 @@ class PolytrackEnv(gym.Env):
         self.action_space = spaces.Discrete(9)
 
         self._last_yaw: float | None = None
+        self._last_xz: tuple[float, float] | None = None
         self._last_cp: int = 0
         self._crash_count: int = 0
         self._checkpoint_hits: int = 0
         self._dbg_step_count: int = 0
         self._dbg_done_count: int = 0
         self._chain_step_seq: int = 0
-        # Fitness = sum over checkpoints of (episode_cap - arrival_time). Faster = higher.
+        # Fitness = horizontal (XZ) distance travelled this episode (metres).
         self._fitness: float = 0.0
         self._checkpoint_times: list[float] = []
         self._finish_scored: bool = False
+        self._horiz_distance: float = 0.0
+        self._airborne_steps: int = 0
         # Track whether the last episode ended via has_finished (needs FinishDebug recovery).
         self._last_episode_finished: bool = False
 
@@ -155,43 +162,45 @@ class PolytrackEnv(gym.Env):
 
         return self._finalize_obs(obs)
 
-    def _update_fitness(self, s: dict[str, Any], cp_prev: int, cp_now: int) -> float:
-        """Score by how fast each checkpoint is reached (lower time → higher fitness).
-
-        For every newly reached checkpoint at game-time ``t``:
-            fitness += (EPISODE_TIME_LIMIT_S - t)
-
-        So an AI that hits CP1 at 5 s beats one that hits it at 20 s, and hitting
-        more checkpoints still adds more score. Returns the fitness delta this step
-        (for reward shaping).
-        """
+    def _record_checkpoint_times(
+        self, s: dict[str, Any], cp_prev: int, cp_now: int
+    ) -> int:
+        """Log checkpoint arrival times (info only — does not affect fitness)."""
         if cp_now <= cp_prev:
-            return 0.0
+            return 0
         te = float(s.get("time_elapsed") or 0.0)
-        delta_fit = 0.0
-        for _ in range(cp_now - cp_prev):
-            t = max(0.0, te)
-            score = max(0.0, EPISODE_TIME_LIMIT_S - t)
-            self._checkpoint_times.append(round(t, 3))
-            self._fitness += score
-            delta_fit += score
-        return delta_fit
+        n = cp_now - cp_prev
+        for _ in range(n):
+            self._checkpoint_times.append(round(max(0.0, te), 3))
+        return n
+
+    def _update_fitness(self) -> float:
+        """Fitness = horizontal distance (m). Returns metres gained this step."""
+        prev = self._fitness
+        self._fitness = float(self._horiz_distance)
+        return self._fitness - prev
 
     def _reward(
         self,
         s: dict[str, Any],
         fitness_delta: float,
         crashed: bool,
+        *,
+        new_checkpoints: int = 0,
     ) -> float:
-        """Favor fast checkpoint arrivals + speed; penalise walls/crashes."""
+        """Favor distance travelled + speed; penalise walls/crashes/off-track."""
         r = 0.0
 
-        # PRIMARY: time-to-checkpoint fitness gained this step (faster CP = more).
-        r += fitness_delta * 0.15
+        # PRIMARY: metres of horizontal progress this step.
+        r += fitness_delta * 0.08
 
-        # Keep moving fast (helps reach checkpoints sooner).
+        # Keep moving (helps cover distance).
         speed_kmh = float(s.get("speed") or 0.0)
         r += (speed_kmh / 200.0) * 0.03
+
+        # Small bonus if/when checkpoints are eventually reached.
+        if new_checkpoints > 0:
+            r += 0.5 * float(new_checkpoints)
 
         # Soft wall-proximity penalty.
         raw_walls = s.get("wall_dists") or []
@@ -206,6 +215,57 @@ class PolytrackEnv(gym.Env):
 
         r -= 0.001  # small per-step time cost (pressure to not dawdle)
         return r
+
+    def _update_horiz_distance(self, s: dict[str, Any]) -> None:
+        """Accumulate XZ path length (ignores vertical jump motion)."""
+        try:
+            x = float(s["position"]["x"])
+            z = float(s["position"]["z"])
+        except (KeyError, TypeError, ValueError):
+            return
+        if self._last_xz is not None:
+            dx = x - self._last_xz[0]
+            dz = z - self._last_xz[1]
+            step_d = float(np.hypot(dx, dz))
+            # Ignore teleport/reset spikes.
+            if step_d < 40.0:
+                self._horiz_distance += step_d
+        self._last_xz = (x, z)
+
+    def _check_off_track(self, s: dict[str, Any]) -> bool:
+        """True when the car fell off the track — not when it is mid-jump.
+
+        Jump: briefly airborne with track mesh still below (ground_dist finite).
+        Off-track: Y into the void, or long freefall with no ground ray hit.
+        """
+        if not s.get("has_started"):
+            self._airborne_steps = 0
+            return False
+
+        try:
+            y = float(s["position"]["y"])
+        except (KeyError, TypeError, ValueError):
+            y = 0.0
+
+        if y < Y_VOID:
+            return True
+        if bool(s.get("off_track")):
+            return True
+
+        airborne = bool(s.get("airborne"))
+        ground = float(s.get("ground_dist") or MAX_RAY_DIST)
+        if airborne:
+            self._airborne_steps += 1
+        else:
+            self._airborne_steps = 0
+
+        # Long freefall with no track under the car → void / off the map.
+        if (
+            self._airborne_steps >= AIRBORNE_OFFTRACK_STEPS
+            and ground >= GROUND_MISS
+        ):
+            return True
+        return False
 
     async def _full_browser_reset(self, *, dbg: bool = False) -> dict[str, Any]:
         """Launch a fresh Chromium, navigate the menu, wait for game ready."""
@@ -306,13 +366,17 @@ class PolytrackEnv(gym.Env):
             print(">>> RESET: entering event loop (_run _go)", flush=True)
         s0 = self._run(_go_with_retry())
         self._last_yaw = None
+        self._last_xz = None
         self._last_cp = int(s0.get("checkpoint_index") or 0)
         self._crash_count = 0
         self._checkpoint_hits = 0
         self._fitness = 0.0
         self._checkpoint_times = []
         self._finish_scored = False
+        self._horiz_distance = 0.0
+        self._airborne_steps = 0
         self._last_episode_finished = False
+        self._update_horiz_distance(s0)
         obs = self._obs_from_state(s0, STEP_WAIT_S)
         if dbg:
             print(
@@ -361,24 +425,33 @@ class PolytrackEnv(gym.Env):
         if cp > cp_prev:
             self._checkpoint_hits += cp - cp_prev
 
-        fitness_delta = self._update_fitness(s, cp_prev, cp)
-        rew = self._reward(s, fitness_delta, crashed)
+        self._update_horiz_distance(s)
+        new_cps = self._record_checkpoint_times(s, cp_prev, cp)
+        fitness_delta = self._update_fitness()
+        off_track = self._check_off_track(s)
+        rew = self._reward(
+            s, fitness_delta, crashed or off_track, new_checkpoints=new_cps
+        )
         obs = self._obs_from_state(s, STEP_WAIT_S)
 
         te = float(s.get("time_elapsed") or 0.0)
         finished = bool(s.get("has_finished"))
-        # Finishing the lap early also scores like a final "checkpoint".
+        # Finishing the lap: reward bonus only (fitness stays distance-based).
         if finished and not self._finish_scored:
-            finish_score = max(0.0, EPISODE_TIME_LIMIT_S - te)
-            self._fitness += finish_score
-            rew += finish_score * 0.15
+            rew += 2.0
             self._finish_scored = True
 
-        terminated = finished or self._crash_count >= MAX_CRASHES
+        # Off-track → end episode immediately (soft KeyR on next reset).
+        terminated = (
+            finished
+            or off_track
+            or self._crash_count >= MAX_CRASHES
+        )
         truncated = te >= EPISODE_TIME_LIMIT_S
         if chain_dbg:
             print(
                 f">>> reward: {float(rew):.4f}  fitness: {self._fitness:.1f}  "
+                f"dist={self._horiz_distance:.1f}  off_track={off_track}  "
                 f"cp_times={self._checkpoint_times}  "
                 f"terminated: {terminated}  truncated: {truncated}",
                 flush=True,
@@ -389,11 +462,16 @@ class PolytrackEnv(gym.Env):
             "fitness": float(self._fitness),
             "checkpoints": int(self._checkpoint_hits),
             "checkpoint_times": list(self._checkpoint_times),
+            "distance_m": float(self._horiz_distance),
+            "off_track": bool(off_track),
+            "airborne": bool(s.get("airborne")),
         }
         if terminated or truncated:
             self._last_episode_finished = finished
             if finished:
                 info["outcome"] = "finished"
+            elif off_track:
+                info["outcome"] = "off_track"
             elif self._crash_count >= MAX_CRASHES:
                 info["outcome"] = "crashed"
             elif truncated:

@@ -49,6 +49,8 @@ def _outcome_label(outcome: str) -> str:
         return "FINISHED"
     if outcome == "timeout":
         return "TIMEOUT"
+    if outcome == "off_track":
+        return "OFF-TRACK"
     return "CRASHED"
 
 
@@ -67,6 +69,7 @@ class TrainingMonitor(BaseCallback):
         self._fps_t: float = 0.0
         self._fps_steps: int = 0
         self._best_fitness = 0.0
+        self._best_reward = float("-inf")
 
     @classmethod
     def show_bootstrap(cls, total_timesteps: int) -> None:
@@ -82,6 +85,7 @@ class TrainingMonitor(BaseCallback):
         ghost._fps_t = 0.0
         ghost._fps_steps = 0
         ghost._best_fitness = 0.0
+        ghost._best_reward = float("-inf")
         cls._draw(ghost)
 
     def _on_training_start(self) -> None:
@@ -117,6 +121,8 @@ class TrainingMonitor(BaseCallback):
             self._last_fitness.append(fitness)
             if fitness > self._best_fitness:
                 self._best_fitness = fitness
+            if rew > self._best_reward:
+                self._best_reward = rew
             self._episodes.append(
                 (self._ep_num, length, rew, cps, outcome, mean_sp, fitness)
             )
@@ -137,12 +143,16 @@ class TrainingMonitor(BaseCallback):
 
         spark_vals = list(self._last_rewards)
         fit_vals = list(self._last_fitness)
-        best_reward = max(spark_vals) if spark_vals else 0.0
+        best_reward_10 = max(spark_vals) if spark_vals else 0.0
         mean_reward = float(np.mean(spark_vals)) if spark_vals else 0.0
         mean_fitness = float(np.mean(fit_vals)) if fit_vals else 0.0
+        best_reward_all = (
+            self._best_reward if self._best_reward > float("-inf") else 0.0
+        )
         n_ep = len(self._episodes)
         n_crash = sum(1 for e in self._episodes if e[4] == "crashed")
         n_fin = sum(1 for e in self._episodes if e[4] == "finished")
+        n_off = sum(1 for e in self._episodes if e[4] == "off_track")
         last5 = [
             {
                 "ep": e[0],
@@ -160,13 +170,15 @@ class TrainingMonitor(BaseCallback):
             "episodes": n_ep,
             "uptime_s": round(now - self._t0, 1),
             "fps": round(fps, 1),
-            "best_reward": round(best_reward, 2),
+            "best_reward": round(best_reward_all, 2),
+            "best_reward_10ep": round(best_reward_10, 2),
             "mean_reward_10ep": round(mean_reward, 2),
             "best_fitness": round(self._best_fitness, 1),
-            "best_fitness_m": round(self._best_fitness, 1),  # legacy key for older GUIs
+            "best_fitness_m": round(self._best_fitness, 1),  # legacy / distance metres
             "mean_fitness_10ep": round(mean_fitness, 1),
             "crashes": n_crash,
             "finishes": n_fin,
+            "off_tracks": n_off,
             "last5": last5,
         }
         try:
@@ -203,16 +215,16 @@ class TrainingMonitor(BaseCallback):
 
         fit_vals = list(self._last_fitness)
         if fit_vals:
-            print("  FITNESS — time-to-checkpoint score (last 10 episodes)")
+            print("  FITNESS — horizontal distance metres (last 10 episodes)")
             print(
-                f"  best:  {max(fit_vals):.1f}   worst: {min(fit_vals):.1f}   "
-                f"mean: {float(np.mean(fit_vals)):.1f}   "
-                f"all-time: {self._best_fitness:.1f}"
+                f"  best:  {max(fit_vals):.1f}m   worst: {min(fit_vals):.1f}m   "
+                f"mean: {float(np.mean(fit_vals)):.1f}m   "
+                f"all-time: {self._best_fitness:.1f}m"
             )
             print(f"  trend: {_sparkline(fit_vals)}   ← spark line")
-            print("  (higher = reached checkpoints faster)")
+            print("  (higher = farther along the track)")
         else:
-            print("  FITNESS — time-to-checkpoint score (last 10 episodes)")
+            print("  FITNESS — horizontal distance metres (last 10 episodes)")
             print("  (no episodes yet)")
         print()
 
@@ -220,10 +232,13 @@ class TrainingMonitor(BaseCallback):
             best = max(spark_vals)
             worst = min(spark_vals)
             mean_r = float(np.mean(spark_vals))
+            all_r = (
+                self._best_reward if self._best_reward > float("-inf") else 0.0
+            )
             print("  REWARD (last 10 episodes)")
             print(
                 f"  best:  {best:+.2f}   worst: {worst:+.2f}   "
-                f"mean: {mean_r:+.2f}"
+                f"mean: {mean_r:+.2f}   all-time: {all_r:+.2f}"
             )
             print(f"  trend: {spark}   ← spark line")
         else:

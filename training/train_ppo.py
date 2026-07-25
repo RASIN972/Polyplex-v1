@@ -202,7 +202,7 @@ def main() -> None:
             gae_lambda=0.95,
             clip_range=0.2,
             # Entropy bonus keeps the policy diverse (exploration); elites are
-            # locked in via EliteFitnessCallback when track-distance fitness peaks.
+            # locked in via EliteFitnessCallback when horizontal-distance fitness peaks.
             ent_coef=0.02,
             verbose=1,
             tensorboard_log=str(log_dir),

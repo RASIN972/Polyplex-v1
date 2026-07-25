@@ -1,11 +1,8 @@
-"""Elite fitness selection for PPO training (time-to-checkpoint fitness).
+"""Elite fitness selection for PPO training (horizontal-distance fitness).
 
-Fitness = sum over reached checkpoints of ``(30 - arrival_time_s)``.
-Faster arrivals score higher; more checkpoints also score higher.
-
-On each new all-time best (and at the end of each generation), the policy is
-snapshotted under ``checkpoints/elites/`` and appended to
-``logs/best_runs.json`` so the GUI can list and replay every best run.
+Fitness = metres of XZ path length travelled in the episode.
+Elites / generation peaks are snapshotted under ``checkpoints/elites/`` and
+appended to ``logs/best_runs.json`` so the GUI can list and replay them.
 """
 
 from __future__ import annotations
@@ -26,7 +23,7 @@ _BEST_RUNS_PATH = Path(
 
 
 class EliteFitnessCallback(BaseCallback):
-    """Save elites by time-to-checkpoint fitness; log runs for the GUI."""
+    """Save elites by horizontal distance fitness; log runs for the GUI."""
 
     def __init__(
         self,
@@ -71,7 +68,9 @@ class EliteFitnessCallback(BaseCallback):
             if ep is None:
                 continue
 
-            fitness = float(info.get("fitness", 0.0))
+            # Prefer explicit distance; fitness == distance_m under the new scheme.
+            distance_m = float(info.get("distance_m", info.get("fitness", 0.0)))
+            fitness = float(info.get("fitness", distance_m))
             reward = float(ep.get("r", 0.0))
             cp_times = info.get("checkpoint_times") or []
             if not isinstance(cp_times, list):
@@ -86,6 +85,7 @@ class EliteFitnessCallback(BaseCallback):
                 "checkpoints": cps,
                 "outcome": outcome,
                 "steps": int(ep.get("l", 0)),
+                "distance_m": distance_m,
             }
 
             self._recent_fitness.append(fitness)
@@ -118,16 +118,10 @@ class EliteFitnessCallback(BaseCallback):
                 if self._recent_fitness
                 else 0.0
             )
-            times = (
-                self._gen_best_info.get("checkpoint_times", [])
-                if self._gen_best_info
-                else []
-            )
             print(
                 f"[elite] gen {self._generation}: "
-                f"best_fit={self._gen_best:.1f}  worst={self._gen_worst:.1f}  "
-                f"mean20={mean_f:.1f}  all-time={self._best_fitness:.1f}  "
-                f"best_cp_times={times}",
+                f"best_dist={self._gen_best:.1f}m  worst={self._gen_worst:.1f}m  "
+                f"mean20={mean_f:.1f}m  all-time={self._best_fitness:.1f}m",
                 flush=True,
             )
         self._gen_ep_count = 0
@@ -140,7 +134,7 @@ class EliteFitnessCallback(BaseCallback):
         fitness = float(ep_info["fitness"])
         run_id = len(self._runs) + 1
         stamp = time.strftime("%Y%m%d_%H%M%S")
-        slug = f"elite_{run_id:03d}_gen{self._generation}_{kind}_fit{fitness:.1f}_{stamp}"
+        slug = f"elite_{run_id:03d}_gen{self._generation}_{kind}_dist{fitness:.1f}_{stamp}"
         model_rel = Path("checkpoints") / "elites" / slug
         model_abs = self._elites_dir / slug
         self.model.save(str(model_abs))
@@ -153,6 +147,7 @@ class EliteFitnessCallback(BaseCallback):
             self.model.save(str(latest_path))
             meta = {
                 "best_fitness": round(fitness, 2),
+                "best_distance_m": round(float(ep_info.get("distance_m", fitness)), 2),
                 "checkpoint_times": ep_info.get("checkpoint_times", []),
                 "checkpoints": ep_info.get("checkpoints", 0),
                 "best_episode_reward": round(float(ep_info["reward"]), 4),
@@ -174,6 +169,7 @@ class EliteFitnessCallback(BaseCallback):
             "fitness": round(fitness, 2),
             "checkpoint_times": ep_info.get("checkpoint_times", []),
             "checkpoints": int(ep_info.get("checkpoints", 0)),
+            "distance_m": round(float(ep_info.get("distance_m", 0.0)), 1),
             "reward": round(float(ep_info["reward"]), 4),
             "outcome": ep_info.get("outcome", "?"),
             "steps": int(ep_info.get("steps", 0)),
@@ -188,8 +184,8 @@ class EliteFitnessCallback(BaseCallback):
         if self.verbose:
             label = "NEW BEST" if kind == "all_time" else f"gen-{self._generation} peak"
             print(
-                f"[elite] {label} fitness={fitness:.1f} "
-                f"cp_times={ep_info.get('checkpoint_times', [])} "
+                f"[elite] {label} dist={fitness:.1f}m  "
+                f"reward={float(ep_info['reward']):+.2f}  "
                 f"→ {model_abs}.zip",
                 flush=True,
             )

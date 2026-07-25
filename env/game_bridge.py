@@ -69,6 +69,10 @@ _RL_INIT_JS = """
     dist_to_checkpoint: 0,
     // 6 wall distances: [forward, front-right 45°, right, left, front-left -45°, back]
     wall_dists: [100, 100, 100, 100, 100, 100],
+    wheels_contact: [false, false, false, false],
+    airborne: false,
+    ground_dist: 100,
+    off_track: false,
   };
 
   // Checkpoint world-position cache — rebuilt once per track load.
@@ -196,6 +200,39 @@ _RL_INIT_JS = """
       }
     }
     return dists;
+  }
+
+  function _computeGroundDist(track, pos) {
+    // Downward ray from above the car — still hits during jumps over track pieces.
+    if (!_initRayObjects()) return MAX_RAY_DIST;
+    if (!track || typeof track.shortRaycast !== "function") return MAX_RAY_DIST;
+    _rayOrigin.set(pos.x, pos.y + 2.0, pos.z);
+    _rayDir.set(0, -1, 0);
+    _raycaster.near = 0.1;
+    _raycaster.far = MAX_RAY_DIST;
+    _raycaster.set(_rayOrigin, _rayDir);
+    try {
+      const hit = track.shortRaycast(_raycaster);
+      return hit ? Math.min(hit.distance, MAX_RAY_DIST) : MAX_RAY_DIST;
+    } catch (e) {
+      return MAX_RAY_DIST;
+    } finally {
+      _raycaster.near = 0.5;
+      _raycaster.far = MAX_RAY_DIST;
+    }
+  }
+
+  function _readWheelsContact(car) {
+    const contacts = [false, false, false, false];
+    if (!car || typeof car.getWheelInContact !== "function") return contacts;
+    for (let i = 0; i < 4; i++) {
+      try {
+        contacts[i] = !!car.getWheelInContact(i);
+      } catch (e) {
+        contacts[i] = false;
+      }
+    }
+    return contacts;
   }
 
   function tick() {
@@ -333,13 +370,24 @@ _RL_INIT_JS = """
       st.dist_to_checkpoint = 0;
     }
 
-    // Wall raycasts: run every RAY_SKIP frames to limit overhead.
-    // Only fire when the race is active (has_started) and track is available.
+    // Wheel contact every frame (cheap); wall/ground rays every RAY_SKIP frames.
+    const wheels = _readWheelsContact(car);
+    st.wheels_contact = wheels;
+    st.airborne = !wheels[0] && !wheels[1] && !wheels[2] && !wheels[3];
+
     _rayFrame = (_rayFrame + 1) % RAY_SKIP;
     if (_rayFrame === 0 && hasStarted && track) {
       const dists = _computeWallDists(track, pos, euler.y);
       if (dists) st.wall_dists = dists;
+      st.ground_dist = _computeGroundDist(track, pos);
     }
+
+    // Hint for Python: clearly in the void (not a jump over track).
+    // Jumps: airborne but ground_dist still finite (track mesh below).
+    st.off_track = hasStarted && (
+      pos.y < -30 ||
+      (st.airborne && st.ground_dist >= MAX_RAY_DIST && st.dist_to_checkpoint > 80)
+    );
 
     requestAnimationFrame(tick);
   }
@@ -577,9 +625,34 @@ class GameBridge:
             waypoint_rel: s.waypoint_rel ? { ...s.waypoint_rel } : { x: 0, z: 0 },
             dist_to_checkpoint: s.dist_to_checkpoint || 0,
             wall_dists: Array.isArray(s.wall_dists) ? [...s.wall_dists] : [100,100,100,100,100,100],
+            wheels_contact: Array.isArray(s.wheels_contact) ? [...s.wheels_contact] : [false,false,false,false],
+            airborne: !!s.airborne,
+            ground_dist: typeof s.ground_dist === "number" ? s.ground_dist : 100,
+            off_track: !!s.off_track,
           };
         }"""
         )
+
+    async def get_recording_serialized(self) -> str | None:
+        """Return Polytrack's input-frame recording (base64) for the current run, if any."""
+        await self._ensure_rl_harness()
+        try:
+            return await self._page.evaluate(
+                """() => {
+              const car = window.__polytrackGhostData && window.__polytrackGhostData.advancedCar;
+              if (!car || typeof car.getRecording !== "function") return null;
+              try {
+                const rec = car.getRecording();
+                if (!rec) return null;
+                if (typeof rec.serialize === "function") return rec.serialize();
+                return null;
+              } catch (e) {
+                return null;
+              }
+            }"""
+            )
+        except Exception:
+            return None
 
     async def _release_playwright_keys(self) -> None:
         for k in list(self._keyboard_held):

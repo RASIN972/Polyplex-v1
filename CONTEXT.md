@@ -121,44 +121,48 @@ ACTION_MAP = {
 }
 ```
 
-## Fitness (time-to-checkpoint) + reward
+## Fitness (horizontal distance) + reward
 
-**Fitness** (selection signal): for each checkpoint reached at game-time `t`:
-
-```text
-fitness += (30 - t)     # episode cap is 30 s; earlier arrival → higher score
-```
-
-Finishing the lap early adds the same style of bonus. So an AI that hits CP1 at 5 s
-beats one that hits it at 20 s; hitting more checkpoints still adds more score.
-Exposed as `info["fitness"]` and `info["checkpoint_times"]` (list of arrival times).
+**Fitness** (selection signal) = horizontal XZ path length this episode (`distance_m`).
+Checkpoint arrival times are still logged in `info["checkpoint_times"]` but do **not**
+drive elite selection (the car often never reaches CP1 early in training).
 
 **Elite selection** (`utils/elite_callback.py`):
-- New all-time best → `checkpoints/best_model.zip` + snapshot under `checkpoints/elites/`
+- New all-time best distance → `checkpoints/best_model.zip` + snapshot under `checkpoints/elites/`
 - End of each generation (~16 episodes) → generation peak also snapshotted
 - All elite/gen runs appended to `logs/best_runs.json` for the GUI “Best Runs” browser
-  (double-click / Watch replays via `evaluate.py`)
+  (double-click / Watch → headed `evaluate.py` on port **8099** with `--auto-server`)
 
 **Diversity:** PPO `ent_coef=0.02` keeps exploration alive.
 
-**Reward** (per step — shapes learning toward fast checkpoint times):
+**Reward** (per step — shapes learning toward covering distance):
 
 ```text
 reward = 0
-reward += fitness_delta * 0.15                 # PRIMARY: time-to-CP score gained this step
-reward += (speed_kmh / 200) * 0.03             # keep moving fast
+reward += fitness_delta * 0.08                 # PRIMARY: metres gained this step
+reward += (speed_kmh / 200) * 0.03             # keep moving
+reward += 0.5 * new_checkpoints                # small bonus if a CP is hit
 # wall-proximity penalty when any wall < 15 m
 if min(wall_dists) < 15.0:
     closeness = 1.0 - min_wall / 15.0
     reward -= closeness * 0.12
-reward -= 1.0   # if crashed_or_reset
+reward -= 1.0   # if crashed_or_reset OR off_track
 reward -= 0.001 # per-step time cost
+# +2.0 once on finish (does not change distance fitness)
 ```
+
+## Horizontal distance + off-track
+
+- **`distance_m`:** cumulative XZ path length (vertical jump motion ignored; teleport spikes > 40 m discarded).
+- **Off-track → terminate** (`outcome="off_track"`), then soft KeyR on next reset. Jump-safe:
+  - Void: car `y < -25` (or JS hint `off_track`)
+  - Sustained freefall: airborne ≥ ~1.75 s **and** downward ground ray misses track (`ground_dist` ≈ max)
+  - Mid-jump over track: airborne but ground ray still hits mesh → **not** off-track
 
 ## Episode termination (`PolytrackEnv.step`)
 
 - **`truncated`:** game `time_elapsed` ≥ **30** s.
-- **`terminated`:** `has_finished` (lap / run complete) **or** **`crashed_or_reset` count ≥ 3** this episode.
+- **`terminated`:** `has_finished` **or** off-track **or** **`crashed_or_reset` count ≥ 3** this episode.
 - Next `reset()` sends a **`KeyR`** soft in-game reset (or runs `FinishDebugGameBridge` recovery after `has_finished`). A full `restart_session` (fresh browser + menu) only happens if the ready-wait times out or the page becomes unreachable.
 
 ## PPO hyperparameters (starting point)
@@ -203,9 +207,9 @@ Default training: CPU. ROCm example: `pip install torch --index-url https://down
 
 **Phase 1 — complete:** `GameBridge` (injection, `get_state`, `send_action`, `reset` = KeyR), `restart_session` (full browser recycle), `start_track_menu_index`, `FinishDebugGameBridge` / `debug_finish_repro.py` for DOM-heavy debugging. `test_game_bridge` smoke test.
 
-**Phase 2 — complete:** `env/polytrack_env.py` — `PolytrackEnv(gymnasium.Env)`, `port` constructor arg, **9-d** lean obs / 9 discrete actions, step cadence ~50 ms, 30 s episodes, track-distance fitness + reward as above.
+**Phase 2 — complete:** `env/polytrack_env.py` — `PolytrackEnv(gymnasium.Env)`, `port` constructor arg, **9-d** lean obs / 9 discrete actions, step cadence ~50 ms, 30 s episodes, **horizontal-distance fitness**, jump-aware off-track reset.
 
-**Phase 3 — script:** `training/train_ppo.py` — `Monitor` + **`SubprocVecEnv`** (default **4** envs) or `--vec-env dummy`; PPO (`ent_coef=0.02`, …), `EliteFitnessCallback` → `checkpoints/best_model.zip`, periodic checkpoints every 50k, `TrainingMonitor` + auto `gui_monitor.py`. Pass `--watch` for headed worker 0. Env exposes `info["fitness"]`, `info["outcome"]`, `info["checkpoints"]`.
+**Phase 3 — script:** `training/train_ppo.py` — `Monitor` + **`SubprocVecEnv`** (default **4** envs) or `--vec-env dummy`; PPO (`ent_coef=0.02`, …), `EliteFitnessCallback` → `checkpoints/best_model.zip`, periodic checkpoints every 50k, `TrainingMonitor` + auto `gui_monitor.py` dashboard. Pass `--watch` for headed worker 0. Env exposes `info["fitness"]`, `info["distance_m"]`, `info["outcome"]`, `info["checkpoints"]`. Watch logs: `logs/watch_run.log`.
 
 ### Running on macOS (e.g. M1, 8 GB)
 
