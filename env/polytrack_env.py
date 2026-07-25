@@ -29,7 +29,13 @@ WALL_WARN_DIST = 15.0         # soft-penalty zone: < 15 m to nearest wall
 # Lean obs: speed, yaw, yaw_rate, 6 wall rays. No velocity/euler bloat, no checkpoint slots.
 OBS_SIZE = 9
 READY_TIMEOUT_S = float(os.environ.get("POLYTRACK_READY_TIMEOUT_S", "300"))
-EPISODE_TIME_LIMIT_S = 30.0
+# Intended control horizon at STEP_WAIT_S (not wall-clock / in-game seconds).
+# With 4 Chromiums, each env step often burns 1–2s of *real game time*, so truncating
+# on ``car.getTime()`` ≈ 30s only allows ~12 actions — learning collapses.
+EPISODE_TIME_LIMIT_S = 30.0  # soft reference for docs / finish bonuses only
+MAX_EPISODE_STEPS = int(os.environ.get("POLYTRACK_MAX_EPISODE_STEPS", "400"))
+# Hard safety if the race clock somehow never resets after KeyR.
+GAME_TIME_HARD_CAP_S = 120.0
 MAX_CRASHES = 3
 # Off-track / void (jumps allowed): terminate after sustained freefall with no track below.
 Y_VOID = -25.0
@@ -100,6 +106,7 @@ class PolytrackEnv(gym.Env):
         self._finish_scored: bool = False
         self._horiz_distance: float = 0.0
         self._airborne_steps: int = 0
+        self._episode_steps: int = 0
         # Track whether the last episode ended via has_finished (needs FinishDebug recovery).
         self._last_episode_finished: bool = False
 
@@ -114,8 +121,8 @@ class PolytrackEnv(gym.Env):
     def _run(self, coro: Any) -> Any:
         return self._loop.run_until_complete(coro)
 
-    async def _wait_for_game_ready(self) -> None:
-        """Wait until vehicle exists and RL harness is valid (no auto-throttle)."""
+    async def _wait_for_game_ready(self, *, require_fresh_timer: bool = False) -> None:
+        """Wait until vehicle exists (and optionally race timer has reset after KeyR)."""
         deadline = time.monotonic() + READY_TIMEOUT_S
         last_nudge_m = 0.0
         while time.monotonic() < deadline:
@@ -125,7 +132,11 @@ class PolytrackEnv(gym.Env):
                 await asyncio.sleep(0.1)
                 continue
             if s.get("car_present") and s.get("ready"):
-                return
+                te = float(s.get("time_elapsed") or 0.0)
+                # After soft reset, refuse to start an episode while the old 30s clock
+                # is still hot — that was producing 6–15 step "timeout" episodes.
+                if not require_fresh_timer or te < 2.5:
+                    return
             now_m = time.monotonic()
             if now_m - last_nudge_m >= 2.5:
                 await self._bridge.nudge_race_start()
@@ -296,7 +307,7 @@ class PolytrackEnv(gym.Env):
                 print(">>> RESET _soft_reset: bridge.reset (KeyR) ...", flush=True)
             await self._bridge.reset()
         try:
-            await self._wait_for_game_ready()
+            await self._wait_for_game_ready(require_fresh_timer=True)
         except TimeoutError:
             print(
                 "[polytrack_env] soft reset ready-wait timed out — falling back to full browser reset",
@@ -375,6 +386,7 @@ class PolytrackEnv(gym.Env):
         self._finish_scored = False
         self._horiz_distance = 0.0
         self._airborne_steps = 0
+        self._episode_steps = 0
         self._last_episode_finished = False
         self._update_horiz_distance(s0)
         obs = self._obs_from_state(s0, STEP_WAIT_S)
@@ -417,6 +429,7 @@ class PolytrackEnv(gym.Env):
             return st
 
         s = self._run(_step())
+        self._episode_steps += 1
         cp = int(s.get("checkpoint_index") or 0)
         cp_prev = self._last_cp
         crashed = bool(s.get("crashed_or_reset"))
@@ -447,12 +460,16 @@ class PolytrackEnv(gym.Env):
             or off_track
             or self._crash_count >= MAX_CRASHES
         )
-        truncated = te >= EPISODE_TIME_LIMIT_S
+        # Truncate on *action steps*, not in-game seconds (see MAX_EPISODE_STEPS).
+        truncated = (
+            self._episode_steps >= MAX_EPISODE_STEPS
+            or te >= GAME_TIME_HARD_CAP_S
+        )
         if chain_dbg:
             print(
                 f">>> reward: {float(rew):.4f}  fitness: {self._fitness:.1f}  "
                 f"dist={self._horiz_distance:.1f}  off_track={off_track}  "
-                f"cp_times={self._checkpoint_times}  "
+                f"steps={self._episode_steps}  "
                 f"terminated: {terminated}  truncated: {truncated}",
                 flush=True,
             )
@@ -465,6 +482,7 @@ class PolytrackEnv(gym.Env):
             "distance_m": float(self._horiz_distance),
             "off_track": bool(off_track),
             "airborne": bool(s.get("airborne")),
+            "episode_steps": int(self._episode_steps),
         }
         if terminated or truncated:
             self._last_episode_finished = finished
@@ -485,8 +503,8 @@ class PolytrackEnv(gym.Env):
                     "[polytrack_dbg] episode_end "
                     f"#{self._dbg_done_count} terminated={terminated} "
                     f"truncated={truncated} outcome={oc} "
-                    f"fitness={self._fitness:.1f} "
-                    f"cp_times={self._checkpoint_times} "
+                    f"fitness={self._fitness:.1f} dist={self._horiz_distance:.1f} "
+                    f"steps={self._episode_steps} "
                     f"crash_count={self._crash_count} te={te:.2f}s",
                     flush=True,
                 )
@@ -497,7 +515,8 @@ class PolytrackEnv(gym.Env):
             print(
                 "[polytrack_dbg] step "
                 f"{self._dbg_step_count} reward={float(rew):.6f} "
-                f"fitness={self._fitness:.1f} speed={spd:.2f} cp={cp} "
+                f"fitness={self._fitness:.1f} dist={self._horiz_distance:.1f} "
+                f"speed={spd:.2f} cp={cp} "
                 f"crashed_edge={crashed} terminated={terminated} truncated={truncated}",
                 flush=True,
             )
