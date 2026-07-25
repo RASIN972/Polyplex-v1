@@ -79,24 +79,24 @@ There is **no separate scalar** “last selected track id” in localStorage; th
 - **Track navigation:** `GameBridge.start_track_menu_index(index)` — pointer-lock exit, canvas focus, resume audio context, click track button `index` (default **0 = first track / track 1 in menu order**).
 - **`_wait_for_game_ready()`** (env): polls `get_state()` until **`car_present` and `ready`** (vehicle exists, RL harness valid). Does **not** require motion or `has_started` — the in-game timer only starts after the player accelerates; the **first W must come from `env.step`**, not the bridge. Timeout `POLYTRACK_READY_TIMEOUT_S` (default 300 s).
 
-## Observation space (13 floats, Box float32, normalized)
+## Observation space (9 floats, Box float32, normalized)
 
-Used by `PolytrackEnv` (`MAX_TRACK_LENGTH = 2000` for future dist features):
+Lean obs — only what the agent needs to drive fast and stay on track (`OBS_SIZE = 9`, `MAX_RAY_DIST = 100`):
 
 | Index | Value | Normalization |
 | --- | --- | --- |
-| 0 | car speed | ÷ 200 |
-| 1–3 | velocity x,y,z | ÷ 100 (finite-diff position / `STEP_WAIT_S`) |
-| 4–6 | euler x,y,z (YXZ rad) | ÷ π |
-| 7–9 | angular velocity proxy | ÷ 10 (finite-diff euler / step) |
-| 10–11 | distance to next 2 checkpoints | ÷ `MAX_TRACK_LENGTH` (**currently 0** until track geometry is exposed) |
-| 12 | time since last checkpoint (s) | ÷ 30 |
+| 0 | car speed (km/h) | ÷ 200 |
+| 1 | yaw (YXZ euler y) | ÷ π |
+| 2 | yaw rate | ÷ 10 (finite-diff / `STEP_WAIT_S`) |
+| 3 | wall distance — forward | ÷ `MAX_RAY_DIST` (0 = wall, 1 = clear) |
+| 4 | wall distance — front-right 45° | ÷ `MAX_RAY_DIST` |
+| 5 | wall distance — right 90° | ÷ `MAX_RAY_DIST` |
+| 6 | wall distance — left −90° | ÷ `MAX_RAY_DIST` |
+| 7 | wall distance — front-left −45° | ÷ `MAX_RAY_DIST` |
+| 8 | wall distance — back 180° | ÷ `MAX_RAY_DIST` |
 
-### Future: checkpoint-relative observations (deferred)
-
-- **Car position** is already in `get_state()` / `__rlState.position`.
-- The **game bundle** exposes checkpoint **x,y,z** and **`checkpointOrder`** (e.g. `getCheckpoints()` around the track class in `polytrackcopy/js/9209-dist-main.bundle.js`); the RL bridge does **not** read this yet.
-- **When implementing:** extend `_RL_INIT_JS` / `get_state()` to resolve the row matching `getNextCheckpointIndex()`, verify the same coordinate frame as `advancedCar.getPosition()`, then feed **Δx, Δy, Δz** (or car-frame goal vector) into obs — e.g. grow the Box beyond 13 or fill obs indices 10–11 with horizontal distance / bearing.
+Removed bloat: full 3-d velocity, pitch/roll, full angular velocity, waypoint slots, time-since-checkpoint.
+Wall distances use Three.js raycasts via `ghostData.track.shortRaycast()` every 3 rAF frames.
 
 ### Future: collision / impact signal (deferred)
 
@@ -121,22 +121,45 @@ ACTION_MAP = {
 }
 ```
 
-## Reward function (per step)
+## Fitness (time-to-checkpoint) + reward
+
+**Fitness** (selection signal): for each checkpoint reached at game-time `t`:
+
+```text
+fitness += (30 - t)     # episode cap is 30 s; earlier arrival → higher score
+```
+
+Finishing the lap early adds the same style of bonus. So an AI that hits CP1 at 5 s
+beats one that hits it at 20 s; hitting more checkpoints still adds more score.
+Exposed as `info["fitness"]` and `info["checkpoint_times"]` (list of arrival times).
+
+**Elite selection** (`utils/elite_callback.py`):
+- New all-time best → `checkpoints/best_model.zip` + snapshot under `checkpoints/elites/`
+- End of each generation (~16 episodes) → generation peak also snapshotted
+- All elite/gen runs appended to `logs/best_runs.json` for the GUI “Best Runs” browser
+  (double-click / Watch replays via `evaluate.py`)
+
+**Diversity:** PPO `ent_coef=0.02` keeps exploration alive.
+
+**Reward** (per step — shapes learning toward fast checkpoint times):
 
 ```text
 reward = 0
-reward += (horizontal_speed_m_s / 100) * 0.01  # XZ-plane only — no reward for falling off-track
-reward += 5.0   # if new checkpoint this step (index increased) — raised from 2.0
-reward -= 1.0   # if crashed_or_reset this step
-reward -= 0.001 # time penalty every step
-# escalating penalty for not hitting a checkpoint: −0.002 × (seconds_since_last_cp − 15) if > 15 s
+reward += fitness_delta * 0.15                 # PRIMARY: time-to-CP score gained this step
+reward += (speed_kmh / 200) * 0.03             # keep moving fast
+# wall-proximity penalty when any wall < 15 m
+if min(wall_dists) < 15.0:
+    closeness = 1.0 - min_wall / 15.0
+    reward -= closeness * 0.12
+reward -= 1.0   # if crashed_or_reset
+reward -= 0.001 # per-step time cost
 ```
 
 ## Episode termination (`PolytrackEnv.step`)
 
-- **`truncated`:** game `time_elapsed` ≥ **60** s.
-- **`terminated`:** `has_finished` (lap / run complete) **or** **`crashed_or_reset` count ≥ 3** this episode (each step with flag True increments counter).
-- Next `reset()` runs **`restart_session` + track menu index 0 + `_wait_for_game_ready`** (fresh browser after recycle).
+- **`truncated`:** game `time_elapsed` ≥ **30** s.
+- **`terminated`:** `has_finished` (lap / run complete) **or** **`crashed_or_reset` count ≥ 3** this episode.
+- Next `reset()` sends a **`KeyR`** soft in-game reset (or runs `FinishDebugGameBridge` recovery after `has_finished`). A full `restart_session` (fresh browser + menu) only happens if the ready-wait times out or the page becomes unreachable.
 
 ## PPO hyperparameters (starting point)
 
@@ -151,6 +174,7 @@ PPO(
     gamma=0.99,
     gae_lambda=0.95,
     clip_range=0.2,
+    ent_coef=0.02,  # diversity / exploration
     verbose=1,
     tensorboard_log="./logs/",
 )
@@ -158,9 +182,9 @@ PPO(
 
 ## Parallelism (implemented)
 
-- **`training/train_ppo.py`:** `SubprocVecEnv` with **8** workers by default (`--num-envs`), **`n_steps=512` per env** → **4096** environment transitions per PPO rollout before each policy update. All env data is **concatenated** into one rollout buffer; the learner sees **every** step from **every** browser.
-- **Ports:** `127.0.0.1:8080` … `8080 + num_envs - 1` (default **8080–8087**). Each `PolytrackEnv(port=…)` loads its own game origin.
-- **Servers:** `python -m utils.launch_servers` or **`run_local_training.py`** (starts missing servers on 8080–8087). Logs: `logs/polytrack_http_server_<port>.log`.
+- **`training/train_ppo.py`:** `SubprocVecEnv` with **4** workers by default (`--num-envs`), **`n_steps=512` per env** → **2048** environment transitions per PPO rollout. Elite fitness callback saves `checkpoints/best_model.zip` on new track-distance highs.
+- **Ports:** `127.0.0.1:8080` … `8080 + num_envs - 1` (default **8080–8083**). Each `PolytrackEnv(port=…)` loads its own game origin.
+- **Servers:** `python -m utils.launch_servers` or **`run_local_training.py`**. Logs: `logs/polytrack_http_server_<port>.log`.
 - **Picklable workers:** `utils/polytrack_env_factory.py` (Windows `spawn`).
 - **Windows / Ryzen + AMD:** see `docs/WINDOWS_TRAINING.md`.
 
@@ -179,9 +203,9 @@ Default training: CPU. ROCm example: `pip install torch --index-url https://down
 
 **Phase 1 — complete:** `GameBridge` (injection, `get_state`, `send_action`, `reset` = KeyR), `restart_session` (full browser recycle), `start_track_menu_index`, `FinishDebugGameBridge` / `debug_finish_repro.py` for DOM-heavy debugging. `test_game_bridge` smoke test.
 
-**Phase 2 — complete:** `env/polytrack_env.py` — `PolytrackEnv(gymnasium.Env)`, `port` constructor arg, 13-d obs / 9 discrete actions, step cadence ~50 ms, reward + termination as above.
+**Phase 2 — complete:** `env/polytrack_env.py` — `PolytrackEnv(gymnasium.Env)`, `port` constructor arg, **9-d** lean obs / 9 discrete actions, step cadence ~50 ms, 30 s episodes, track-distance fitness + reward as above.
 
-**Phase 3 — script:** `training/train_ppo.py` — `Monitor` + **`SubprocVecEnv`** (default **8** envs) or `--vec-env dummy` for `DummyVecEnv`; PPO (`MlpPolicy`, `net_arch=[64,64]`, **`n_steps=512` per env**, …), 1M steps, `CheckpointCallback` every 50k → `./checkpoints/`, TensorBoard → `./logs/`, `utils/training_monitor.TrainingMonitor` (ANSI dashboard every 1000 steps). Default browser is **headless**; pass **`--headed`** for visible Chromium. On episode end, `polytrack_env` sets `info["outcome"]` and `info["checkpoints"]`.
+**Phase 3 — script:** `training/train_ppo.py` — `Monitor` + **`SubprocVecEnv`** (default **4** envs) or `--vec-env dummy`; PPO (`ent_coef=0.02`, …), `EliteFitnessCallback` → `checkpoints/best_model.zip`, periodic checkpoints every 50k, `TrainingMonitor` + auto `gui_monitor.py`. Pass `--watch` for headed worker 0. Env exposes `info["fitness"]`, `info["outcome"]`, `info["checkpoints"]`.
 
 ### Running on macOS (e.g. M1, 8 GB)
 

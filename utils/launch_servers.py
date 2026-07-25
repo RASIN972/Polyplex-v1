@@ -114,8 +114,8 @@ def main() -> int:
         "--ports",
         type=int,
         nargs="*",
-        default=list(range(8080, 8088)),
-        help="Ports to bind (default: 8080–8087)",
+        default=list(range(8080, 8084)),
+        help="Ports to bind (default: 8080–8083 for 4 parallel envs)",
     )
     parser.add_argument(
         "--no-wait",

@@ -30816,6 +30816,7 @@ function deepClone(obj) {
                             S.dispose(), S = new MR(n, u, c, g, r, a, e, _)
                         }))
                     };
+                ghostData.track = m;
                 let S = new kA(m, r, p, g, o, w, l, h, u, n, s, a, c, e, x, b, E, M),
                     T = 0;
                 u.setAnimationLoop((function (e) {

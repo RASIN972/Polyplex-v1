@@ -65,7 +65,43 @@ _RL_INIT_JS = """
     has_started: false,
     has_finished: false,
     car_present: false,
+    waypoint_rel: { x: 0, z: 0 },
+    dist_to_checkpoint: 0,
+    // 6 wall distances: [forward, front-right 45°, right, left, front-left -45°, back]
+    wall_dists: [100, 100, 100, 100, 100, 100],
   };
+
+  // Checkpoint world-position cache — rebuilt once per track load.
+  // getCheckpoints() returns grid cells; convert to world metres using
+  // partWidth=20, partHeight=5, partLength=20 and the rotation offsets
+  // the game applies internally (same as the checkpoint-render code).
+  let _cpCache = null;
+  let _cpCacheTrackRef = null;
+
+  function _buildCpCache(track) {
+    try {
+      const W = 20, H = 5, L = 20;
+      const raw = track.getCheckpoints();
+      _cpCache = raw.map((cp) => {
+        const [cx, cy, cz] = cp.detector.center;
+        let ox, oy, oz;
+        const r = cp.rotation;
+        if (r === 0)      { ox = cx; oy = cy; oz = cz; }
+        else if (r === 1) { ox = cz; oy = cy; oz = -cx; }
+        else if (r === 2) { ox = -cx; oy = cy; oz = -cz; }
+        else              { ox = cz; oy = cy; oz = cx; }
+        return {
+          x: cp.x * W + ox,
+          y: cp.y * H + oy,
+          z: cp.z * L + oz,
+          order: cp.checkpointOrder,
+        };
+      });
+      _cpCacheTrackRef = track;
+    } catch (e) {
+      _cpCache = [];
+    }
+  }
 
   window.__rlBridge = window.__rlBridge || { held: new Set() };
 
@@ -112,6 +148,55 @@ _RL_INIT_JS = """
   const SUDDEN_STOP_SPEED_PRIOR = 55;
   const SUDDEN_STOP_SPEED_AFTER = 6;
   const SUDDEN_STOP_MAX_DIST = 14;
+
+  // Wall-raycast config: 6 angles (car-local), max distance, frame-skip interval.
+  // We fire raycasts every RAY_SKIP frames (~20 Hz at 60 fps) to keep overhead low.
+  const MAX_RAY_DIST = 100;
+  const RAY_SKIP = 3;        // run raycasts every 3 rAF frames
+  const RAY_OFFSETS = [0, Math.PI / 4, Math.PI / 2, -Math.PI / 2, -Math.PI / 4, Math.PI];
+  let _rayFrame = 0;
+
+  // Reusable Three.js objects — allocated once to avoid per-frame GC pressure.
+  let _rayOrigin = null;
+  let _rayDir = null;
+  let _raycaster = null;
+
+  function _initRayObjects() {
+    const THREE = window.__THREE__;
+    if (!THREE) return false;
+    if (_rayOrigin) return true;
+    try {
+      _rayOrigin  = new THREE.Vector3();
+      _rayDir     = new THREE.Vector3();
+      _raycaster  = new THREE.Raycaster();
+      _raycaster.near = 0.5;
+      _raycaster.far  = MAX_RAY_DIST;
+      return true;
+    } catch (e) {
+      return false;
+    }
+  }
+
+  function _computeWallDists(track, pos, yaw) {
+    if (!_initRayObjects()) return null;
+    const THREE = window.__THREE__;
+    if (!THREE || !track || typeof track.shortRaycast !== "function") return null;
+    const dists = [];
+    // Raycast origin: 1 m above the car centre to clear ground-level geometry.
+    _rayOrigin.set(pos.x, pos.y + 1.0, pos.z);
+    for (let i = 0; i < RAY_OFFSETS.length; i++) {
+      const angle = yaw + RAY_OFFSETS[i];
+      _rayDir.set(Math.sin(angle), 0, Math.cos(angle));
+      _raycaster.set(_rayOrigin, _rayDir);
+      try {
+        const hit = track.shortRaycast(_raycaster);
+        dists.push(hit ? Math.min(hit.distance, MAX_RAY_DIST) : MAX_RAY_DIST);
+      } catch (e) {
+        dists.push(MAX_RAY_DIST);
+      }
+    }
+    return dists;
+  }
 
   function tick() {
     const gd = window.__polytrackGhostData;
@@ -219,6 +304,42 @@ _RL_INIT_JS = """
     st.time_elapsed = timeSec;
     st.has_started = hasStarted;
     st.has_finished = hasFinished;
+
+    // Waypoint computation: build/refresh checkpoint cache, then compute
+    // car-local relative vector to the next checkpoint.
+    const track = gd && gd.track;
+    if (track && typeof track.getCheckpoints === "function") {
+      if (_cpCacheTrackRef !== track) {
+        _buildCpCache(track);
+      }
+    }
+    if (_cpCache && _cpCache.length > 0) {
+      const next = _cpCache.find((c) => c.order === cp);
+      if (next) {
+        const dx = next.x - pos.x;
+        const dz = next.z - pos.z;
+        const yaw = euler.y;
+        const cosY = Math.cos(-yaw);
+        const sinY = Math.sin(-yaw);
+        st.waypoint_rel = { x: dx * cosY - dz * sinY, z: dx * sinY + dz * cosY };
+        st.dist_to_checkpoint = Math.hypot(dx, dz);
+      } else {
+        // Past all checkpoints (finish phase) or cache mismatch — zero out.
+        st.waypoint_rel = { x: 0, z: 0 };
+        st.dist_to_checkpoint = 0;
+      }
+    } else {
+      st.waypoint_rel = { x: 0, z: 0 };
+      st.dist_to_checkpoint = 0;
+    }
+
+    // Wall raycasts: run every RAY_SKIP frames to limit overhead.
+    // Only fire when the race is active (has_started) and track is available.
+    _rayFrame = (_rayFrame + 1) % RAY_SKIP;
+    if (_rayFrame === 0 && hasStarted && track) {
+      const dists = _computeWallDists(track, pos, euler.y);
+      if (dists) st.wall_dists = dists;
+    }
 
     requestAnimationFrame(tick);
   }
@@ -453,6 +574,9 @@ class GameBridge:
             has_started: s.has_started,
             has_finished: s.has_finished,
             car_present: s.car_present,
+            waypoint_rel: s.waypoint_rel ? { ...s.waypoint_rel } : { x: 0, z: 0 },
+            dist_to_checkpoint: s.dist_to_checkpoint || 0,
+            wall_dists: Array.isArray(s.wall_dists) ? [...s.wall_dists] : [100,100,100,100,100,100],
           };
         }"""
         )

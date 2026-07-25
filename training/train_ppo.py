@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 import argparse
+import multiprocessing
 import os
 import socket
+import subprocess
 import sys
 import traceback
 from datetime import datetime
@@ -16,6 +18,7 @@ _ROOT = Path(__file__).resolve().parent.parent
 if str(_ROOT) not in sys.path:
     sys.path.insert(0, str(_ROOT))
 
+from utils.elite_callback import EliteFitnessCallback
 from utils.polytrack_env_factory import make_polytrack_monitored_env
 from utils.training_monitor import TrainingMonitor
 
@@ -24,8 +27,31 @@ CHECKPOINT_FREQ = 50_000
 
 # PPO collects n_steps * num_envs transitions per rollout before each policy update.
 N_STEPS_PER_ENV = 512
-NUM_ENVS_DEFAULT = 8
+NUM_ENVS_DEFAULT = 4
 BASE_PORT_DEFAULT = 8080
+
+
+def _launch_gui_monitor() -> subprocess.Popen | None:
+    """Spawn gui_monitor.py in a separate process. Returns the Popen or None on failure."""
+    gui_script = _ROOT / "gui_monitor.py"
+    if not gui_script.exists():
+        return None
+    # On macOS/Linux, check whether a display is available before trying Tkinter.
+    if sys.platform != "win32" and not os.environ.get("DISPLAY") and sys.platform != "darwin":
+        print("[gui_monitor] No DISPLAY — skipping GUI monitor (headless server).", flush=True)
+        return None
+    try:
+        proc = subprocess.Popen(
+            [sys.executable, str(gui_script)],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            close_fds=True,
+        )
+        print(f"[gui_monitor] Launched (pid {proc.pid}). Close the window any time.", flush=True)
+        return proc
+    except Exception as exc:
+        print(f"[gui_monitor] Could not launch GUI monitor: {exc}", flush=True)
+        return None
 
 
 def _require_game_servers(host: str, ports: list[int]) -> None:
@@ -82,7 +108,15 @@ def main() -> None:
     parser.add_argument(
         "--headed",
         action="store_true",
-        help="Show Chromium windows (default: headless, especially for num_envs>1)",
+        help="Show Chromium windows for ALL envs (default: headless).",
+    )
+    parser.add_argument(
+        "--watch",
+        action="store_true",
+        help=(
+            "Run worker 0 in a visible (headed) Chromium window so you can watch the agent live. "
+            "Workers 1..N-1 remain headless. Ignored when --headed is also set."
+        ),
     )
     parser.add_argument(
         "--device",
@@ -96,12 +130,24 @@ def main() -> None:
         default=0,
         help="Track row after main-menu Play (0 = first track)",
     )
+    parser.add_argument(
+        "--no-gui",
+        action="store_true",
+        help="Suppress the auto-launched Tkinter GUI monitor window.",
+    )
     args = parser.parse_args()
 
     num_envs = max(1, int(args.num_envs))
     base = args.port if args.port is not None else args.base_port
     ports = [base + i for i in range(num_envs)]
-    headless = not args.headed
+
+    # --headed: all envs visible. --watch: only worker 0 is headed.
+    def _headless_for(worker_idx: int) -> bool:
+        if args.headed:
+            return False
+        if args.watch and worker_idx == 0:
+            return False
+        return True
 
     _require_game_servers("127.0.0.1", ports)
 
@@ -112,11 +158,14 @@ def main() -> None:
     log_dir.mkdir(parents=True, exist_ok=True)
     monitor_dir.mkdir(parents=True, exist_ok=True)
 
+    if args.watch and not args.headed:
+        print("  [--watch] Worker 0 will open a visible Chromium window.\n", flush=True)
+
     env_fns = [
         make_polytrack_monitored_env(
             port=ports[i],
             track_index=args.track_index,
-            headless=headless,
+            headless=_headless_for(i),
             monitor_file=str(monitor_dir / f"polytrack_{ports[i]}.csv"),
             worker_index=i,
         )
@@ -137,6 +186,10 @@ def main() -> None:
         flush=True,
     )
 
+    gui_proc: subprocess.Popen | None = None
+    if not args.no_gui:
+        gui_proc = _launch_gui_monitor()
+
     try:
         model = PPO(
             "MlpPolicy",
@@ -148,8 +201,12 @@ def main() -> None:
             gamma=0.99,
             gae_lambda=0.95,
             clip_range=0.2,
+            # Entropy bonus keeps the policy diverse (exploration); elites are
+            # locked in via EliteFitnessCallback when track-distance fitness peaks.
+            ent_coef=0.02,
             verbose=1,
             tensorboard_log=str(log_dir),
+            # Smaller net matches the lean 9-d observation.
             policy_kwargs=dict(net_arch=[64, 64]),
             device=args.device,
         )
@@ -161,13 +218,16 @@ def main() -> None:
             save_replay_buffer=False,
             save_vecnormalize=False,
         )
+        elite_cb = EliteFitnessCallback(
+            checkpoint_dir, track_index=args.track_index, verbose=1
+        )
         monitor_cb = TrainingMonitor(TOTAL_TIMESTEPS)
 
         TrainingMonitor.show_bootstrap(TOTAL_TIMESTEPS)
 
         model.learn(
             total_timesteps=TOTAL_TIMESTEPS,
-            callback=[checkpoint_cb, monitor_cb],
+            callback=[checkpoint_cb, elite_cb, monitor_cb],
             progress_bar=False,
         )
 
@@ -194,7 +254,10 @@ def main() -> None:
         raise
     finally:
         vec.close()
+        if gui_proc is not None and gui_proc.poll() is None:
+            gui_proc.terminate()
 
 
 if __name__ == "__main__":
+    multiprocessing.freeze_support()  # required for SubprocVecEnv on Windows
     main()
