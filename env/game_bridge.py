@@ -382,11 +382,11 @@ _RL_INIT_JS = """
       st.ground_dist = _computeGroundDist(track, pos);
     }
 
-    // Hint for Python: clearly in the void (not a jump over track).
-    // Jumps: airborne but ground_dist still finite (track mesh below).
+    // Hint for Python: clearly off the road / in the void (not a short jump).
+    // Jumps: briefly airborne but ground_dist still finite (track mesh below).
     st.off_track = hasStarted && (
-      pos.y < -30 ||
-      (st.airborne && st.ground_dist >= MAX_RAY_DIST && st.dist_to_checkpoint > 80)
+      pos.y < -8 ||
+      (st.airborne && st.ground_dist >= MAX_RAY_DIST * 0.9 && st.dist_to_checkpoint > 40)
     );
 
     requestAnimationFrame(tick);
@@ -689,6 +689,10 @@ class GameBridge:
 
     async def reset(self) -> None:
         """Press R (vehicle reset / restart in-game)."""
+        try:
+            await self._page.focus("canvas#screen", timeout=2000)
+        except PlaywrightTimeoutError:
+            pass
         await self._page.keyboard.press("KeyR")
 
     async def restart_session(

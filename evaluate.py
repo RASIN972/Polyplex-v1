@@ -179,7 +179,13 @@ def main() -> None:
                 speed = float(obs[0]) * 200.0
                 fitness = float(info.get("fitness", 0.0))
                 dist = float(info.get("distance_m", fitness))
-                if step % 20 == 0:
+                if info.get("off_track"):
+                    print(
+                        f"\n  OFF-TRACK at step {step} dist={dist:.1f}m — "
+                        "ending run and starting a new one…",
+                        flush=True,
+                    )
+                elif step % 20 == 0:
                     print(
                         f"  step {step:4d}  speed={speed:5.1f} km/h  "
                         f"dist={dist:6.1f} m  "
@@ -200,6 +206,8 @@ def main() -> None:
                 f"cp_times={cp_times}  outcome={outcome}  wall={elapsed:.1f}s        ",
                 flush=True,
             )
+            if outcome == "off_track":
+                print("  -> soft reset, next episode…", flush=True)
     except KeyboardInterrupt:
         print("\nStopped by user.", flush=True)
     except SystemExit:

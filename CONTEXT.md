@@ -161,10 +161,9 @@ reward -= 0.001 # per-step time cost
 
 ## Episode termination (`PolytrackEnv.step`)
 
-- **`truncated`:** env action steps ≥ **400** (`POLYTRACK_MAX_EPISODE_STEPS`), *not* raw
-  in-game `time_elapsed` (4 Chromiums often burn 1–2 s of game time per step, so a
-  30 s game clock only allowed ~12 actions). Hard cap: game time ≥ 120 s.
-- **`terminated`:** `has_finished` **or** off-track **or** **`crashed_or_reset` count ≥ 3** this episode.
+- **`truncated`:** **30 s hard cap** (wall-clock since reset, or in-game `time_elapsed` ≥ 30).
+- **`terminated`:** `has_finished` **or** off-track (immediate double-KeyR) **or**
+  **`crashed_or_reset` count ≥ 3** this episode.
 - Next `reset()` sends a **`KeyR`** soft in-game reset (or runs `FinishDebugGameBridge` recovery after `has_finished`). A full `restart_session` (fresh browser + menu) only happens if the ready-wait times out or the page becomes unreachable.
 
 ## PPO hyperparameters (starting point)

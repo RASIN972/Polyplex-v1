@@ -1110,7 +1110,7 @@ class TrainingMonitorGUI:
             "--track-index",
             str(track),
             "--episodes",
-            "1",
+            "0",
             "--auto-server",
         ]
         try:
