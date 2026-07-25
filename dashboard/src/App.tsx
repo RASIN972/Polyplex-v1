@@ -194,11 +194,11 @@ export default function App() {
 
         <section className="hero-grid">
           <div className="hero glass">
-            <div className="hero-kicker">Agent telemetry</div>
-            <h2>Satellite-grade training control</h2>
+            <div className="hero-kicker">PPO training</div>
+            <h2>Train your racing agent</h2>
             <p className="sub">
-              Monitor PPO rollouts, track elite distance, and replay best runs —
-              live.
+              Watch live rollouts, track reward and distance, and replay elite
+              runs as the policy improves.
             </p>
 
             <div className="hero-stage">
